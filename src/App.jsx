@@ -692,22 +692,24 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
         <div className="font-semibold">候補 {idx + 1}</div>
         <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
-      <div className="grid md:grid-cols-2 gap-4 mt-3">
-        <div>
-          <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
-          <div className="space-y-2">
-            {Object.entries(assn.satisfaction).map(([name, s]) => (
-              <div key={name} className="flex items-center gap-2">
-                <div className="w-24 text-sm">{name}</div>
-                <Progress value={s} />
-                <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
-          {viewMode==='calendar' ? <CalendarView /> : <ListView />}
+
+      {/* 上: 提案カレンダー/リスト */}
+      <div className="mt-3">
+        <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
+        {viewMode==='calendar' ? <CalendarView /> : <ListView />}
+      </div>
+
+      {/* 下: 充足率 */}
+      <div className="mt-4">
+        <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
+        <div className="space-y-2">
+          {Object.entries(assn.satisfaction).map(([name, s]) => (
+            <div key={name} className="flex items-center gap-2">
+              <div className="w-24 text-sm">{name}</div>
+              <Progress value={s} />
+              <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
