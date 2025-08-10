@@ -174,7 +174,17 @@ export default function ShiftSchedulerApp() {
   // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number} }
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
   const [members, setMembers] = useState(persisted?.members ?? [
-   
+    { name: "栄嶋", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "せりな", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "ここあ", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "安井", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "松原", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "高村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "田村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "坂ノ下", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "鈴木", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "吉村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
+    { name: "小原", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
