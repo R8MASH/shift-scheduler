@@ -1,18 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
 import JapaneseHolidays from "japanese-holidays";
 
-// 追加対応（昼夜で必要人数を別々に指定）
-// - 各日について「昼の必要人数」「夜の必要人数」を個別に設定可能
-// - その日のモード（昼/夜）で、対応する必要人数がスケジューラ＆不足判定に反映
-// - モードを切り替えても数値は保持（昼用・夜用を両方保存）
-// - 既存機能：カレンダー表示、タブ編集、必要人数最優先、保存＆復元、不足ハイライト、曜日表示
+// ===============================
+// Shift Scheduler Web App (React)
+// - 1日1枠（昼 or 夜）
+// - 前半(1-15) / 後半(16-末) 切替
+// - 昼夜で必要人数を別々に保持
+// - 祝日/土日色分け
+// - メンバー希望（カレンダーで可/優先）
+// - 候補生成＆不足ハイライト
+// - 提案ビュー：リスト / カレンダー
+// - 昼夜別に「採用」→ 統合カレンダー表示
+// - 連勤制限（デフォルト3、個別設定可）
+// - ローカル保存/復元
+// ===============================
 
 /** 型の目安
  * Slot: { id: string, label: string, required: number, iso: string, mode: '昼'|'夜' }
- * Member: { name: string, availability: Set<string>, desired_days: number, preferred_slots: Set<string> }
+ * Member: { name: string, availability: Set<string>, desired_days: number, preferred_slots: Set<string>, max_consecutive?: number }
  */
 
-// ===== スケジューラ（必要人数優先 2パス方式） =====
+// ===== スケジューラ（必要人数最優先 2パス + 連勤制限） =====
 function computeSatisfaction(member, assigned) {
   if (member.desired_days <= 0) {
     return member.preferred_slots.size === 0
@@ -57,6 +65,8 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
     for (const m of candidates) {
       if (needed <= 0) break;
       if (byMember[m.name].length >= Math.max(1, m.desired_days + 1)) continue;
+      const maxConsec = Number.isFinite(m.max_consecutive) ? m.max_consecutive : 3;
+      if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec)) continue;
       bySlot[slot.id].push(m.name);
       byMember[m.name].push(slot.id);
       needed -= 1;
@@ -65,7 +75,9 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
     if (needed > 0) {
       for (const m of candidates) {
         if (needed <= 0) break;
-        if (bySlot[slot.id].includes(m.name)) continue; // 既に入っていればスキップ
+        if (bySlot[slot.id].includes(m.name)) continue; // 既に割当済み
+        const maxConsec = Number.isFinite(m.max_consecutive) ? m.max_consecutive : 3;
+        if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec)) continue;
         bySlot[slot.id].push(m.name);
         byMember[m.name].push(slot.id);
         needed -= 1;
@@ -120,6 +132,27 @@ function weekdayJ(iso) {
   return ['日','月','火','水','木','金','土'][w];
 }
 
+// --- 連勤制限ヘルパ ---
+function isoAddDays(iso, delta){
+  const [y,m,d] = iso.split('-').map(Number);
+  const dt = new Date(y, m-1, d + delta);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth()+1).padStart(2,'0');
+  const dd = String(dt.getDate()).padStart(2,'0');
+  return `${yy}-${mm}-${dd}`;
+}
+function wouldExceedConsecutive(existingSlotIds, candidateIso, max){
+  const isoSet = new Set((existingSlotIds||[]).map(sid => sid.split('_')[0]));
+  if (isoSet.has(candidateIso)) return false;
+  let left=0, right=0;
+  let cur = isoAddDays(candidateIso, -1);
+  while(isoSet.has(cur)){ left++; cur = isoAddDays(cur, -1); }
+  cur = isoAddDays(candidateIso, +1);
+  while(isoSet.has(cur)){ right++; cur = isoAddDays(cur, +1); }
+  const total = left + 1 + right;
+  return total > max;
+}
+
 // 日本の祝日判定（ライブラリ利用） & 色決定
 function isHolidayISO(iso) {
   const [y,m,d] = iso.split('-').map(Number);
@@ -136,7 +169,7 @@ function weekendHolidayBg(iso, periodMode) {
 }
 
 // ===== 永続化（ローカルストレージ） =====
-const LS_KEY = 'shift-scheduler-demo/state/v5'; // v5: 初期メンバー刷新（Aoi/Bea/Chen → 指定10名） // v4: reqDay/reqNight へ移行
+const LS_KEY = 'shift-scheduler-demo/state/v5';
 function saveState(state) {
   try {
     const plain = {
@@ -159,6 +192,7 @@ function loadState() {
       ...m,
       availability: new Set(m.availability || []),
       preferred_slots: new Set(m.preferred_slots || []),
+      max_consecutive: m.max_consecutive ?? 3,
     }));
     return s;
   } catch { return null; }
@@ -171,9 +205,19 @@ export default function ShiftSchedulerApp() {
   const [year, setYear] = useState(persisted?.year ?? today.getFullYear());
   const [month, setMonth] = useState(persisted?.month ?? (today.getMonth() + 1));
   const [half, setHalf] = useState(persisted?.half ?? 'H1');
-  // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number} }
+  // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number}, periodMode: '昼'|'夜' }
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
   const [members, setMembers] = useState(persisted?.members ?? [
+    { name: "栄嶋", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "せりな", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "ここあ", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "安井", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "松原", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "高村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "田村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "坂ノ下", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "吉村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "小原", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
@@ -186,7 +230,7 @@ export default function ShiftSchedulerApp() {
   // 状態の永続化
   useEffect(() => {
     saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack]);
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
   useEffect(() => {
@@ -204,7 +248,7 @@ export default function ShiftSchedulerApp() {
         defaultsReqDay[iso] = 1;
         defaultsReqNight[iso] = 1;
       }
-      const cur = prev[key] || { modes: {}, reqs: {}, reqDay: {}, reqNight: {} };
+      const cur = prev[key] || { modes: {}, reqs: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
       // 旧フィールド reqs があれば、それを両方に流用
       const mergedDay = { ...defaultsReqDay, ...(cur.reqDay || {}), ...(cur.reqs || {}) };
       const mergedNight = { ...defaultsReqNight, ...(cur.reqNight || {}), ...(cur.reqs || {}) };
@@ -214,7 +258,7 @@ export default function ShiftSchedulerApp() {
   }, [year, month, half]);
 
   const cfgRaw = periodConfigs[periodKey(year, month, half)] || {};
-  // 旧データ（reqsのみ）でも落ちないようにマージして正規化
+  // 旧データ（reqsのみ）でも落ちないように正規化
   const cfg = {
     modes: {},
     reqDay: {},
@@ -250,7 +294,7 @@ export default function ShiftSchedulerApp() {
   const bulkSetMode = (mode) => {
     setPeriodConfigs((prev) => {
       const key = periodKey(year, month, half);
-      const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {} };
+      const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
       const nextModes = Object.fromEntries(Object.keys(now.modes).map((iso) => [iso, mode]));
       return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
     });
@@ -428,11 +472,11 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
 
   const update = (iso, patch) => {
     const next = {
-  modes: { ...(cfg.modes || {}) },
-  reqDay: { ...(cfg.reqDay || {}) },
-  reqNight: { ...(cfg.reqNight || {}) },
-  periodMode: cfg.periodMode         // ← これを追加
-};
+      modes: { ...(cfg.modes || {}) },
+      reqDay: { ...(cfg.reqDay || {}) },
+      reqNight: { ...(cfg.reqNight || {}) },
+      periodMode: cfg.periodMode,
+    };
 
     if (Object.prototype.hasOwnProperty.call(patch, 'mode')) next.modes[iso] = patch.mode;
     if (Object.prototype.hasOwnProperty.call(patch, 'reqDay')) next.reqDay[iso] = patch.reqDay;
@@ -501,7 +545,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
-  const add = () => setMembers((m) => [...m, { name: `Member${m.length + 1}`, availability: new Set(), desired_days: 1, preferred_slots: new Set() }]);
+  const add = () => setMembers((m) => [...m, { name: `Member${m.length + 1}`, availability: new Set(), desired_days: 1, preferred_slots: new Set(), max_consecutive: 3 }]);
   const remove = (idx) => setMembers((arr) => arr.filter((_, i) => i !== idx));
   const updateMember = (idx, patch) => setMembers((arr) => arr.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
 
@@ -517,7 +561,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
       const sid = slotIdForIso(iso);
       const set = new Set(copy[idx].availability);
       if (set.has(sid)) set.delete(sid); else set.add(sid);
-      // 優先の整合性は維持（優先がONで可→不可にした場合は優先も外す）
+      // 優先の整合性維持
       const pref = new Set(copy[idx].preferred_slots);
       if (!set.has(sid) && pref.has(sid)) pref.delete(sid);
       copy[idx] = { ...copy[idx], availability: set, preferred_slots: pref };
@@ -532,8 +576,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
       const avail = new Set(copy[idx].availability);
       if (checked) {
         pref.add(sid);
-        // 優先を付けたら勤務可能も自動ON
-        avail.add(sid);
+        avail.add(sid); // 優先付与時は可もON
       } else {
         pref.delete(sid);
       }
@@ -571,6 +614,8 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <input className="border rounded px-2 py-1" value={members[active].name} onChange={(e) => updateMember(active, { name: e.target.value })} />
             <label className="text-sm text-gray-600 ml-auto">希望日数</label>
             <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days} onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })} />
+            <label className="text-sm text-gray-600 ml-4">連勤上限</label>
+            <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
           </div>
 
@@ -620,7 +665,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
 function Chip({ active, onClick, children }) {
   return (
-    <button type="button" onClick={onClick} className={"px-2 py-1 rounded-full border text-sm " + (active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300")}>
+    <button type="button" onClick={onClick} className={"px-2 py-1 rounded-full border text-sm " + (active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300")}>\
       {children}
     </button>
   );
@@ -740,8 +785,6 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
         </label>
         <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
-        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
-      </div>
 
       {/* 上: 提案カレンダー/リスト */}
       <div className="mt-3">
@@ -799,7 +842,7 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
     const nightPeople = hasNight ? (adoptedByMode.night.bySlot[`${iso}_NIGHT`] || []) : [];
 
     cells.push(
-      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>{/* 背景は休日色 */}
+      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-medium">{d}</div>
           <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
@@ -808,7 +851,9 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
           <div className="flex items-start gap-2">
             <span className="px-2 py-0.5 rounded border bg-yellow-200">昼</span>
             <div className="flex-1">
-              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (dayPeople.length < reqDay) ? '#DC2626' : '#16A34A'}}>{dayPeople.length}/{reqDay}</div>
+              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (dayPeople.length < reqDay) ? '#DC2626' : '#16A34A'}}>
+                {dayPeople.length}/{reqDay}
+              </div>
               {dayPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
               {dayPeople.length>4 && <span className="text-gray-500">+{dayPeople.length-4}</span>}
             </div>
@@ -816,7 +861,9 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
           <div className="flex items-start gap-2">
             <span className="px-2 py-0.5 rounded border bg-indigo-200">夜</span>
             <div className="flex-1">
-              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>{nightPeople.length}/{reqNight}</div>
+              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text白 align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>
+                {nightPeople.length}/{reqNight}
+              </div>
               {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
               {nightPeople.length>4 && <span className="text-gray-500">+{nightPeople.length-4}</span>}
             </div>
