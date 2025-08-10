@@ -526,8 +526,19 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
           <div className="flex gap-2 items-center">
             <input className="border rounded px-2 py-1" value={members[active].name} onChange={(e) => updateMember(active, { name: e.target.value })} />
             <label className="text-sm text-gray-600 ml-auto">希望日数</label>
-            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days} onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })} />
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1"
+              value={members[active].desired_days}
+              onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })}
+            />
+
+            <label className="text-sm text-gray-600 ml-4">連勤上限</label>
+            <input type="number" min={1} className="w-20 border rounded px-2 py-1"
+              value={members[active].max_consecutive ?? 3}
+              onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })}
+            />
+
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
+
           </div>
 
           <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（この期間のモード：<b>{cfg.periodMode}</b>）。</div>
