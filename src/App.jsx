@@ -180,10 +180,12 @@ export default function ShiftSchedulerApp() {
   // 提案表示の見やすさ向上用トグル
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list'); // 'list' | 'calendar'
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
+  // 昼夜ごとの「採用」候補（期間キー別に保存） { [periodKey]: { day: AssnSnap|null, night: AssnSnap|null } }
+  const [adopted, setAdopted] = useState(persisted?.adopted ?? {});
 
   // 状態の永続化
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack });
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted });
   }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
@@ -326,10 +328,48 @@ export default function ShiftSchedulerApp() {
           ) : (
             <div className="grid gap-4">
               {candidates.map((c, idx) => (
-                <CandidateCard key={idx} idx={idx} assn={c} slots={slots} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} cfg={cfg} />
+                <CandidateCard
+                  key={idx}
+                  idx={idx}
+                  assn={c}
+                  slots={slots}
+                  viewMode={viewMode}
+                  onlyLack={onlyLack}
+                  year={year}
+                  month={month}
+                  half={half}
+                  cfg={cfg}
+                  mode={cfg.periodMode}
+                  adoptedByMode={(adopted[periodKey(year, month, half)] || {})}
+                  onToggleAdopt={(mode, nextChecked, assn) => {
+                    setAdopted(prev => {
+                      const k = periodKey(year, month, half);
+                      const cur = prev[k] || {};
+                      if (!nextChecked) {
+                        const next = { ...cur };
+                        if (mode === '昼') delete next.day; else delete next.night;
+                        return { ...prev, [k]: next };
+                      }
+                      const snap = { bySlot: assn.bySlot, satisfaction: assn.satisfaction, score: assn.score, __sig: assn.__sig };
+                      const next = mode === '昼' ? { ...cur, day: snap } : { ...cur, night: snap };
+                      return { ...prev, [k]: next };
+                    });
+                  }}
+                />
               ))}
             </div>
           )}
+        </Panel>
+
+        {/* 採用（昼・夜）統合カレンダー */}
+        <Panel title="採用（昼・夜）統合カレンダー">
+          <AdoptedMergedCalendar
+            year={year}
+            month={month}
+            half={half}
+            cfg={cfg}
+            adoptedByMode={adopted[periodKey(year, month, half)] || {}}
+          />
         </Panel>
 
         <footer className="text-xs text-gray-500 text-center">© Shift Scheduler demo – カレンダー表示 / タブ編集 / 不足ハイライト / 自動保存 / 昼夜別必要人数</footer>
@@ -586,7 +626,7 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg }) {
+function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg, mode='昼', adoptedByMode={}, onToggleAdopt }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
 
@@ -688,8 +728,18 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3 justify-between">
         <div className="font-semibold">候補 {idx + 1}</div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={mode==='昼' ? (adoptedByMode.day?.__sig === assn.__sig) : (adoptedByMode.night?.__sig === assn.__sig)}
+            onChange={(e)=> onToggleAdopt(mode, e.target.checked, assn)}
+          />
+          採用（{mode}）
+        </label>
+        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
+      </div>
         <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
 
@@ -712,6 +762,77 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
+  const dmax = daysInMonth(year, month);
+  const start = half === 'H1' ? 1 : 16;
+  const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+  const firstDow = new Date(year, month - 1, 1).getDay();
+  const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
+  let day = 1;
+
+  const hasDay = !!adoptedByMode.day;
+  const hasNight = !!adoptedByMode.night;
+
+  const head = (
+    <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
+      {['日','月','火','水','木','金','土'].map((w) => (
+        <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
+      ))}
+    </div>
+  );
+
+  const cells = [];
+  for (let i=0;i<totalCells;i++){
+    const empty = i < firstDow || day > dmax;
+    if (empty){ cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
+    const d = day++;
+    const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const inRange = d >= start && d <= end;
+
+    const reqDay = cfg.reqDay[iso] ?? 0;
+    const reqNight = cfg.reqNight[iso] ?? 0;
+    const dayPeople = hasDay ? (adoptedByMode.day.bySlot[`${iso}_DAY`] || []) : [];
+    const nightPeople = hasNight ? (adoptedByMode.night.bySlot[`${iso}_NIGHT`] || []) : [];
+
+    cells.push(
+      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>{/* 背景は休日色 */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-medium">{d}</div>
+          <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
+        </div>
+        <div className="space-y-1 text-xs">
+          <div className="flex items-start gap-2">
+            <span className="px-2 py-0.5 rounded border bg-yellow-200">昼</span>
+            <div className="flex-1">
+              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (dayPeople.length < reqDay) ? '#DC2626' : '#16A34A'}}>{dayPeople.length}/{reqDay}</div>
+              {dayPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
+              {dayPeople.length>4 && <span className="text-gray-500">+{dayPeople.length-4}</span>}
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="px-2 py-0.5 rounded border bg-indigo-200">夜</span>
+            <div className="flex-1">
+              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>{nightPeople.length}/{reqNight}</div>
+              {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
+              {nightPeople.length>4 && <span className="text-gray-500">+{nightPeople.length-4}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {head}
+      <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
+        {cells}
+      </div>
+      {(!hasDay && !hasNight) && <div className="text-sm text-gray-500 mt-2">まだ「採用」を選んだ候補がありません。候補一覧で昼/夜のどちらかにチェックを入れてください。</div>}
     </div>
   );
 }
