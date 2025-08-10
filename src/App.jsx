@@ -174,28 +174,17 @@ export default function ShiftSchedulerApp() {
   // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number} }
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
   const [members, setMembers] = useState(persisted?.members ?? [
-    { name: "栄嶋", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "せりな", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "ここあ", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "安井", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "松原", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "高村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "田村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "坂ノ下", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "鈴木", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "吉村", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
-    { name: "小原", availability: new Set(), desired_days: 2, preferred_slots: new Set() },
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
+  // 提案表示の見やすさ向上用トグル
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list'); // 'list' | 'calendar'
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
-
 
   // 状態の永続化
   useEffect(() => {
     saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates]);
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
   useEffect(() => {
@@ -320,25 +309,25 @@ export default function ShiftSchedulerApp() {
         </Panel>
 
         <Panel title="候補スケジュール（不足日は赤ハイライト）">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm text-gray-600">表示</span>
+            <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('list')}>リスト</button>
+            <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('calendar')}>カレンダー</button>
+            <label className="ml-4 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
+            </label>
+            <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
+              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
+              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
+            </div>
+          </div>
           {candidates.length === 0 ? (
             <div className="text-gray-500">条件を満たす案がありません。しきい値を下げるか、希望を広げてください。</div>
           ) : (
             <div className="grid gap-4">
               {candidates.map((c, idx) => (
-                <CandidateCard
-                  key={idx}
-                  idx={idx}
-                  assn={c}
-                  slots={slots}
-                  viewMode={viewMode}
-                  onlyLack={onlyLack}
-                  year={year}
-                  month={month}
-                  half={half}
-                  cfg={cfg}
-                />
+                <CandidateCard key={idx} idx={idx} assn={c} slots={slots} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} cfg={cfg} />
               ))}
-
             </div>
           )}
         </Panel>
@@ -541,19 +530,8 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
           <div className="flex gap-2 items-center">
             <input className="border rounded px-2 py-1" value={members[active].name} onChange={(e) => updateMember(active, { name: e.target.value })} />
             <label className="text-sm text-gray-600 ml-auto">希望日数</label>
-            <input type="number" min={0} className="w-20 border rounded px-2 py-1"
-              value={members[active].desired_days}
-              onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })}
-            />
-
-            <label className="text-sm text-gray-600 ml-4">連勤上限</label>
-            <input type="number" min={1} className="w-20 border rounded px-2 py-1"
-              value={members[active].max_consecutive ?? 3}
-              onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })}
-            />
-
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days} onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })} />
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
-
           </div>
 
           <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（この期間のモード：<b>{cfg.periodMode}</b>）。</div>
@@ -608,136 +586,133 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function CandidateCard({ idx, assn, slots, viewMode = 'list', onlyLack = false, year, month, half, cfg }) {
+function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
 
-  // ISO → { required, people[], mode } の辞書（現在期間 & 現在モード）
-  const byIso = React.useMemo(() => {
-    const map = {};
+  // 補助: ISO→スロット検索（この期間は各ISO1枠）
+  const slotByIso = React.useMemo(() => Object.fromEntries(slots.map(s => [s.iso, s])), [slots]);
+
+  // カレンダー描画（半月）
+  const CalendarView = () => {
     const dmax = daysInMonth(year, month);
     const start = half === 'H1' ? 1 : 16;
     const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-    for (let d = start; d <= end; d++) {
+    const firstDow = new Date(year, month - 1, 1).getDay();
+    const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
+
+    const cells = [];
+    let day = 1;
+    for (let i = 0; i < totalCells; i++) {
+      const empty = i < firstDow || day > dmax;
+      if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'70px'}}/>); continue; }
+      const d = day++;
       const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const mode = (cfg.modes || {})[iso] || '昼';
-      const sid = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
-      const slotMeta = slots.find(s => s.id === sid);
-      map[iso] = {
-        required: slotMeta?.required ?? 0,
-        people: assn.bySlot[sid] || [],
-        mode,
-      };
+      const inRange = d >= start && d <= end;
+      const slot = slotByIso[iso];
+      if (!inRange) { cells.push(<div key={iso} className="border rounded p-2 opacity-40" style={{minHeight:'70px'}}><div className="text-sm font-medium">{d}</div></div>); continue; }
+      if (!slot) { cells.push(<div key={iso} className="border rounded p-2" style={{minHeight:'70px'}}><div className="text-sm font-medium">{d}</div></div>); continue; }
+
+      const people = assn.bySlot[slot.id] || [];
+      const required = slot.required || 0;
+      const lack = people.length < required;
+      if (onlyLack && !lack) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'70px'}}/>); continue; }
+
+      const bg = lack ? '#FEE2E2' : '#DCFCE7';
+      const maxShow = 4;
+      const shown = people.slice(0, maxShow);
+      const extra = people.length - shown.length;
+      cells.push(
+        <div key={iso} className="relative border rounded p-2" style={{minHeight:'86px', background:bg}}>
+          {/* 右上バッジ：割当/必要 */}
+          <div className={`absolute top-1 right-1 text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>
+            {people.length}/{required}
+          </div>
+          <div className="flex items-center justify-between mb-1 pr-12">
+            <div className="text-sm font-medium">{d}</div>
+            <div className="text-xs text-gray-700">{cfg.modes[iso] || '昼'}</div>
+          </div>
+          <div className="text-xs leading-tight" title={people.join(', ')}>
+            {shown.length > 0 ? shown.map((p, i) => (<div key={i}>{p}</div>)) : '-' }
+            {extra > 0 && <div className="text-[10px] text-gray-600">+{extra} 名</div>}
+          </div>
+        </div>
+      );
     }
-    return map;
-  }, [assn, slots, year, month, half, cfg]);
+
+    return (
+      <div>
+        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
+          {['日','月','火','水','木','金','土'].map((w) => (
+            <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
+          ))}
+        </div>
+        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
+          {cells}
+        </div>
+      </div>
+    );
+  };
+
+  // リスト描画
+  const ListView = () => (
+    <div className="space-y-2 text-sm">
+      {[...Object.entries(assn.bySlot)]
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .filter(([sid, people]) => {
+          if (!onlyLack) return true;
+          const slot = slots.find((s) => s.id === sid);
+          const required = slot?.required ?? 0;
+          return people.length < required;
+        })
+        .map(([sid, people]) => {
+          const slot = slots.find((s) => s.id === sid);
+          const required = slot?.required ?? 0;
+          const lack = people.length < required;
+          return (
+            <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
+              <div>
+                {slot?.label || sid}
+                {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
+              </div>
+              <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
+                {(() => { const maxShow=4; const shown=people.slice(0,maxShow); const extra=people.length-shown.length; return (<>
+                  {shown.join('、') || '-'}{extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
+                </>); })()}
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  );
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center justify-between">
         <div className="font-semibold">候補 {idx + 1}</div>
-        <div className="text-sm text-gray-600">
-          スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%
-        </div>
+        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
-
-      {viewMode === 'list' ? (
-        // リスト表示
-        <div className="grid md:grid-cols-2 gap-4 mt-3">
-          <div>
-            <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
-            <div className="space-y-2">
-              {Object.entries(assn.satisfaction).map(([name, s]) => (
-                <div key={name} className="flex items-center gap-2">
-                  <div className="w-24 text-sm">{name}</div>
-                  <Progress value={s} />
-                  <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-600 mb-1">シフト別割当（不足は赤）</div>
-            <div className="space-y-2 text-sm">
-              {[...Object.entries(assn.bySlot)]
-                .sort(([a], [b]) => (a < b ? -1 : 1))
-                .map(([sid, people]) => {
-                  const slot = slots.find((s) => s.id === sid);
-                  const required = slot?.required ?? 0;
-                  const lack = people.length < required;
-                  if (onlyLack && !lack) return null;
-                  return (
-                    <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : 'bg-green-50 border-green-200'}`}>
-                      <div>
-                        {slot?.label || sid}
-                        {lack ? (
-                          <span className="ml-2 text-red-600">不足: {required - people.length}人</span>
-                        ) : (
-                          <span className="ml-2 text-green-700">充足</span>
-                        )}
-                      </div>
-                      <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`}>{people.join(', ') || '-'}</div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      ) : (
-        // カレンダー表示
-        <div className="mt-3">
-          <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
-            {['日','月','火','水','木','金','土'].map((w) => (
-              <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
+      <div className="grid md:grid-cols-2 gap-4 mt-3">
+        <div>
+          <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
+          <div className="space-y-2">
+            {Object.entries(assn.satisfaction).map(([name, s]) => (
+              <div key={name} className="flex items-center gap-2">
+                <div className="w-24 text-sm">{name}</div>
+                <Progress value={s} />
+                <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
+              </div>
             ))}
           </div>
-          <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
-            {(() => {
-              const items = [];
-              const dmax = daysInMonth(year, month);
-              const firstDow = new Date(year, month - 1, 1).getDay();
-              const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
-              let day = 1;
-              const start = half === 'H1' ? 1 : 16;
-              const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-              for (let i = 0; i < totalCells; i++) {
-                const empty = i < firstDow || day > dmax;
-                if (empty) { items.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'92px'}}/>); continue; }
-                const d = day++;
-                const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const inRange = d >= start && d <= end;
-                const info = byIso[iso] || { required: 0, people: [], mode: '昼' };
-                const lack = info.people.length < info.required;
-                if (!inRange) {
-                  items.push(<div key={iso} className="border rounded p-2 opacity-40" style={{minHeight:'120px'}} />);
-                  continue;
-                }
-                items.push(
-                  <div key={iso} className={`border rounded p-2 ${onlyLack && !lack ? 'opacity-40' : ''}`} style={{minHeight:'120px', background: weekendHolidayBg(iso, info.mode)}}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-medium">{d}</div>
-                      <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
-                    </div>
-                    <div className="text-xs mb-1">
-                      <span className={`px-2 py-0.5 rounded border ${info.mode==='昼' ? 'bg-yellow-200' : 'bg-indigo-200'}`}>{info.mode}</span>
-                      <span className="ml-2">必要 {info.required} / 割当 {info.people.length}</span>
-                    </div>
-                    <div className={`text-sm ${lack ? 'text-red-700' : 'text-gray-700'}`}>
-                      {info.people.join(', ') || '-'}
-                    </div>
-                    {lack && <div className="text-xs text-red-600 mt-1">不足: {info.required - info.people.length}人</div>}
-                  </div>
-                );
-              }
-              return items;
-            })()}
-          </div>
         </div>
-      )}
+        <div>
+          <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
+          {viewMode==='calendar' ? <CalendarView /> : <ListView />}
+        </div>
+      </div>
     </div>
   );
 }
-
 
 function Progress({ value }) {
   return (
