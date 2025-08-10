@@ -188,10 +188,13 @@ export default function ShiftSchedulerApp() {
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
+  const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list'); // 'list' | 'calendar'
+  const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
+
 
   // 状態の永続化
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates });
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack });
   }, [year, month, half, periodConfigs, members, minSat, numCandidates]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
@@ -322,8 +325,20 @@ export default function ShiftSchedulerApp() {
           ) : (
             <div className="grid gap-4">
               {candidates.map((c, idx) => (
-                <CandidateCard key={idx} idx={idx} assn={c} slots={slots} />
+                <CandidateCard
+                  key={idx}
+                  idx={idx}
+                  assn={c}
+                  slots={slots}
+                  viewMode={viewMode}
+                  onlyLack={onlyLack}
+                  year={year}
+                  month={month}
+                  half={half}
+                  cfg={cfg}
+                />
               ))}
+
             </div>
           )}
         </Panel>
@@ -593,53 +608,136 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function CandidateCard({ idx, assn, slots }) {
+function CandidateCard({ idx, assn, slots, viewMode = 'list', onlyLack = false, year, month, half, cfg }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
+
+  // ISO → { required, people[], mode } の辞書（現在期間 & 現在モード）
+  const byIso = React.useMemo(() => {
+    const map = {};
+    const dmax = daysInMonth(year, month);
+    const start = half === 'H1' ? 1 : 16;
+    const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    for (let d = start; d <= end; d++) {
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const mode = (cfg.modes || {})[iso] || '昼';
+      const sid = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
+      const slotMeta = slots.find(s => s.id === sid);
+      map[iso] = {
+        required: slotMeta?.required ?? 0,
+        people: assn.bySlot[sid] || [],
+        mode,
+      };
+    }
+    return map;
+  }, [assn, slots, year, month, half, cfg]);
+
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center justify-between">
         <div className="font-semibold">候補 {idx + 1}</div>
-        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
+        <div className="text-sm text-gray-600">
+          スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%
+        </div>
       </div>
-      <div className="grid md:grid-cols-2 gap-4 mt-3">
-        <div>
-          <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
-          <div className="space-y-2">
-            {Object.entries(assn.satisfaction).map(([name, s]) => (
-              <div key={name} className="flex items-center gap-2">
-                <div className="w-24 text-sm">{name}</div>
-                <Progress value={s} />
-                <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
-              </div>
+
+      {viewMode === 'list' ? (
+        // リスト表示
+        <div className="grid md:grid-cols-2 gap-4 mt-3">
+          <div>
+            <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
+            <div className="space-y-2">
+              {Object.entries(assn.satisfaction).map(([name, s]) => (
+                <div key={name} className="flex items-center gap-2">
+                  <div className="w-24 text-sm">{name}</div>
+                  <Progress value={s} />
+                  <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-600 mb-1">シフト別割当（不足は赤）</div>
+            <div className="space-y-2 text-sm">
+              {[...Object.entries(assn.bySlot)]
+                .sort(([a], [b]) => (a < b ? -1 : 1))
+                .map(([sid, people]) => {
+                  const slot = slots.find((s) => s.id === sid);
+                  const required = slot?.required ?? 0;
+                  const lack = people.length < required;
+                  if (onlyLack && !lack) return null;
+                  return (
+                    <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : 'bg-green-50 border-green-200'}`}>
+                      <div>
+                        {slot?.label || sid}
+                        {lack ? (
+                          <span className="ml-2 text-red-600">不足: {required - people.length}人</span>
+                        ) : (
+                          <span className="ml-2 text-green-700">充足</span>
+                        )}
+                      </div>
+                      <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`}>{people.join(', ') || '-'}</div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        // カレンダー表示
+        <div className="mt-3">
+          <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
+            {['日','月','火','水','木','金','土'].map((w) => (
+              <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
             ))}
           </div>
-        </div>
-        <div>
-          <div className="text-sm text-gray-600 mb-1">シフト別割当（不足は赤）</div>
-          <div className="space-y-2 text-sm">
-            {[...Object.entries(assn.bySlot)]
-              .sort(([a], [b]) => (a < b ? -1 : 1))
-              .map(([sid, people]) => {
-                const slot = slots.find((s) => s.id === sid);
-                const required = slot?.required ?? 0;
-                const lack = people.length < required;
-                return (
-                  <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
-                    <div>
-                      {slot?.label || sid}
-                      {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
+          <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
+            {(() => {
+              const items = [];
+              const dmax = daysInMonth(year, month);
+              const firstDow = new Date(year, month - 1, 1).getDay();
+              const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
+              let day = 1;
+              const start = half === 'H1' ? 1 : 16;
+              const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+              for (let i = 0; i < totalCells; i++) {
+                const empty = i < firstDow || day > dmax;
+                if (empty) { items.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'92px'}}/>); continue; }
+                const d = day++;
+                const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const inRange = d >= start && d <= end;
+                const info = byIso[iso] || { required: 0, people: [], mode: '昼' };
+                const lack = info.people.length < info.required;
+                if (!inRange) {
+                  items.push(<div key={iso} className="border rounded p-2 opacity-40" style={{minHeight:'120px'}} />);
+                  continue;
+                }
+                items.push(
+                  <div key={iso} className={`border rounded p-2 ${onlyLack && !lack ? 'opacity-40' : ''}`} style={{minHeight:'120px', background: weekendHolidayBg(iso, info.mode)}}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium">{d}</div>
+                      <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
                     </div>
-                    <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`}>{people.join(', ') || '-'}</div>
+                    <div className="text-xs mb-1">
+                      <span className={`px-2 py-0.5 rounded border ${info.mode==='昼' ? 'bg-yellow-200' : 'bg-indigo-200'}`}>{info.mode}</span>
+                      <span className="ml-2">必要 {info.required} / 割当 {info.people.length}</span>
+                    </div>
+                    <div className={`text-sm ${lack ? 'text-red-700' : 'text-gray-700'}`}>
+                      {info.people.join(', ') || '-'}
+                    </div>
+                    {lack && <div className="text-xs text-red-600 mt-1">不足: {info.required - info.people.length}人</div>}
                   </div>
                 );
-              })}
+              }
+              return items;
+            })()}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
+
 
 function Progress({ value }) {
   return (
