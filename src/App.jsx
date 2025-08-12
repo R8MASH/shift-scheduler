@@ -274,16 +274,29 @@ export default function ShiftSchedulerApp() {
     const out = [];
     const reqDay = cfg.reqDay || {};
     const reqNight = cfg.reqNight || {};
-    const legacy = cfg.reqs || {}; // 念のため（旧）
-    for (const iso of Object.keys(cfg.modes || {}).sort()) {
-      const mode = cfg.modes[iso];
+    const legacy = cfg.reqs || {};
+
+    let isoKeys = Object.keys(cfg.modes || {}).sort();
+    // フォールバック：modes が空の場合でも半月分を生成
+    if (isoKeys.length === 0) {
+      const dmax = daysInMonth(year, month);
+      const start = half === 'H1' ? 1 : 16;
+      const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+      isoKeys = [];
+      for (let d = start; d <= end; d++) {
+        isoKeys.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+      }
+    }
+
+    for (const iso of isoKeys) {
+      const mode = (cfg.modes || {})[iso] || cfg.periodMode || '昼';
       const id = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
       const label = `${iso} (${weekdayJ(iso)}) ${mode}`;
       const required = mode === '昼' ? (reqDay[iso] ?? legacy[iso] ?? 1) : (reqNight[iso] ?? legacy[iso] ?? 1);
       out.push({ id, label, required, iso, mode });
     }
     return out;
-  }, [cfg]);
+  }, [cfg, year, month, half]);
 
   const candidates = useMemo(
     () => generateCandidates(members, slots, numCandidates, minSat),
@@ -293,29 +306,33 @@ export default function ShiftSchedulerApp() {
   // 全日一括：昼／夜
   const bulkSetMode = (mode) => {
     const key = periodKey(year, month, half);
-    // 変更前のモードを取得（この期間の全ISO）
-    const before = periodConfigs[key] || { modes: {} };
-    const beforeModes = before.modes || {};
-    const isos = Object.keys(beforeModes);
+    const dmax = daysInMonth(year, month);
+    const start = half === 'H1' ? 1 : 16;
+    const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    const isos = [];
+    for (let d = start; d <= end; d++) {
+      isos.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    }
 
-    // 期間設定を更新（全日を指定モードに）
+    // 期間設定を更新（キーが空でも全日埋める）
     setPeriodConfigs((prev) => {
       const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
-      const nextModes = Object.fromEntries(Object.keys(now.modes).map((iso) => [iso, mode]));
+      const nextModes = Object.fromEntries(isos.map((iso) => [iso, mode]));
       return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
     });
 
-    // メンバーの availability / preferred_slots 内のIDを、新モードIDへリマップ
+    // メンバーの availability / preferred_slots を新モードIDへリマップ
     setMembers((arr) => arr.map((m) => {
       const avail = new Set(m.availability);
       const pref = new Set(m.preferred_slots);
       for (const iso of isos) {
-        const prevId = `${iso}_${beforeModes[iso] === '昼' ? 'DAY' : 'NIGHT'}`;
+        const dayId = `${iso}_DAY`;
+        const nightId = `${iso}_NIGHT`;
         const nextId = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
-        if (prevId !== nextId) {
-          if (avail.has(prevId)) { avail.delete(prevId); avail.add(nextId); }
-          if (pref.has(prevId)) { pref.delete(prevId); pref.add(nextId); }
-        }
+        if (dayId !== nextId && avail.has(dayId)) { avail.delete(dayId); avail.add(nextId); }
+        if (nightId !== nextId && avail.has(nightId)) { avail.delete(nightId); avail.add(nextId); }
+        if (dayId !== nextId && pref.has(dayId)) { pref.delete(dayId); pref.add(nextId); }
+        if (nightId !== nextId && pref.has(nightId)) { pref.delete(nightId); pref.add(nextId); }
       }
       return { ...m, availability: avail, preferred_slots: pref };
     }));
