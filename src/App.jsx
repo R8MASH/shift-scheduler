@@ -625,37 +625,25 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const remove = (idx) => setMembers((arr) => arr.filter((_, i) => i !== idx));
   const updateMember = (idx, patch) => setMembers((arr) => arr.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
 
-  // 指定日のスロットIDを取得（期間の現モードに合わせる）
-  const slotIdForIso = (iso) => {
-    const mode = (cfg.modes || {})[iso] || '昼';
-    return `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
-  };
-
-  const toggleAvail = (idx, iso) => {
+  // 昼夜それぞれのスロットIDを扱う（期間モードに依存せず常に昼夜を表示）
+  const toggleAvailSlot = (idx, slotId) => {
     setMembers((arr) => {
       const copy = [...arr];
-      const sid = slotIdForIso(iso);
       const set = new Set(copy[idx].availability);
-      if (set.has(sid)) set.delete(sid); else set.add(sid);
+      if (set.has(slotId)) set.delete(slotId); else set.add(slotId);
       // 優先の整合性維持
       const pref = new Set(copy[idx].preferred_slots);
-      if (!set.has(sid) && pref.has(sid)) pref.delete(sid);
+      if (!set.has(slotId) && pref.has(slotId)) pref.delete(slotId);
       copy[idx] = { ...copy[idx], availability: set, preferred_slots: pref };
       return copy;
     });
   };
-  const setPreferred = (idx, iso, checked) => {
+  const setPreferredSlot = (idx, slotId, checked) => {
     setMembers((arr) => {
       const copy = [...arr];
-      const sid = slotIdForIso(iso);
       const pref = new Set(copy[idx].preferred_slots);
       const avail = new Set(copy[idx].availability);
-      if (checked) {
-        pref.add(sid);
-        avail.add(sid); // 優先付与時は可もON
-      } else {
-        pref.delete(sid);
-      }
+      if (checked) { pref.add(slotId); avail.add(slotId); } else { pref.delete(slotId); }
       copy[idx] = { ...copy[idx], preferred_slots: pref, availability: avail };
       return copy;
     });
@@ -697,7 +685,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
           </div>
 
-          <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（この期間のモード：<b>{cfg.periodMode}</b>）。</div>
+          <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（昼・夜それぞれに「勤務可能」と「優先」を個別に設定できます）。</div>
 
           {/* 曜日ヘッダ */}
           <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
@@ -710,27 +698,45 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
           <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
             {Array.from({length: totalCells}, (_, i) => i).map((i) => {
               const empty = i < firstDow || i - firstDow + 1 > dmax;
-              if (empty) return <div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'92px'}}/>;
+              if (empty) return <div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'120px'}}/>;
               const d = i - firstDow + 1;
               const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
               const inRange = d >= start && d <= end;
-              const sid = slotIdForIso(iso);
-              const isAvail = members[active].availability.has(sid);
-              const isPref = members[active].preferred_slots.has(sid);
+              const dayId = `${iso}_DAY`;
+              const nightId = `${iso}_NIGHT`;
+              const isAvailDay = members[active].availability.has(dayId);
+              const isAvailNight = members[active].availability.has(nightId);
+              const isPrefDay = members[active].preferred_slots.has(dayId);
+              const isPrefNight = members[active].preferred_slots.has(nightId);
 
               return (
-                <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? (isAvail ? '#DBEAFE' : weekendHolidayBg(iso, cfg.periodMode)) : undefined}}>
+                <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso, cfg.periodMode) : undefined}}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-medium">{d}</div>
                     <div className="text-xs text-gray-500">({['日','月','火','水','木','金','土'][new Date(year, month-1, d).getDay()]})</div>
                   </div>
-                  <button type="button" disabled={!inRange} onClick={() => toggleAvail(active, iso)} className={`w-full text-sm border rounded px-2 py-1 ${isAvail ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
-                    {isAvail ? '勤務可能' : '未選択'}
-                  </button>
-                  <label className="flex items-center gap-2 mt-2 text-xs">
-                    <input type="checkbox" disabled={!inRange} checked={isPref} onChange={(e)=> setPreferred(active, iso, e.target.checked)} />
-                    優先日
-                  </label>
+
+                  {/* 昼 行 */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-xs border rounded px-2 py-0.5 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
+                      {isAvailDay ? '勤務可能' : '未選択'}
+                    </button>
+                    <label className="flex items-center gap-1 text-xs">
+                      <input type="checkbox" disabled={!inRange} checked={isPrefDay} onChange={(e)=> setPreferredSlot(active, dayId, e.target.checked)} /> 優先
+                    </label>
+                  </div>
+
+                  {/* 夜 行 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-xs border rounded px-2 py-0.5 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
+                      {isAvailNight ? '勤務可能' : '未選択'}
+                    </button>
+                    <label className="flex items-center gap-1 text-xs">
+                      <input type="checkbox" disabled={!inRange} checked={isPrefNight} onChange={(e)=> setPreferredSlot(active, nightId, e.target.checked)} /> 優先
+                    </label>
+                  </div>
                 </div>
               );
             })}
