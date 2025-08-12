@@ -228,10 +228,12 @@ export default function ShiftSchedulerApp() {
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
   // 昼夜ごとの「採用」候補（期間キー別に保存） { [periodKey]: { day: AssnSnap|null, night: AssnSnap|null } }
   const [adopted, setAdopted] = useState(persisted?.adopted ?? {});
+  // ハイライト対象メンバー（候補/採用カレンダーで強調表示）
+  const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
 
   // 状態の永続化
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted });
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName });
   }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
@@ -440,6 +442,12 @@ export default function ShiftSchedulerApp() {
             <label className="ml-4 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
+            {/* ハイライト選択 */}
+            <span className="ml-4 text-sm text-gray-600">ハイライト</span>
+            <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
+              <option value="">なし</option>
+              {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
+            </select>
             <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
@@ -477,6 +485,7 @@ export default function ShiftSchedulerApp() {
                       return { ...prev, [k]: next };
                     });
                   }}
+                  highlightName={highlightName}
                 />
               ))}
             </div>
@@ -491,6 +500,7 @@ export default function ShiftSchedulerApp() {
             half={half}
             cfg={cfg}
             adoptedByMode={adopted[periodKey(year, month, half)] || {}}
+            highlightName={highlightName}
           />
         </Panel>
 
@@ -784,7 +794,7 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg, mode='昼', adoptedByMode={}, onToggleAdopt }) {
+function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg, mode='昼', adoptedByMode={}, onToggleAdopt, highlightName='' }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
 
@@ -816,12 +826,13 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
       const lack = people.length < required;
       if (onlyLack && !lack) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'70px'}}/>); continue; }
 
+      const selectedInCell = highlightName && people.includes(highlightName);
       const bg = lack ? '#FEE2E2' : '#DCFCE7';
       const maxShow = 4;
       const shown = people.slice(0, maxShow);
       const extra = people.length - shown.length;
       cells.push(
-        <div key={iso} className="relative border rounded p-2" style={{minHeight:'86px', background:bg}}>
+        <div key={iso} className={`relative border rounded p-2 ${selectedInCell ? 'ring-2 ring-amber-400' : ''}`} style={{minHeight:'86px', background:bg}}>
           {/* 右上バッジ：割当/必要 */}
           <div className={`absolute top-1 right-1 text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>
             {people.length}/{required}
@@ -831,7 +842,9 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
             <div className="text-xs text-gray-700">{mode}</div>
           </div>
           <div className="text-xs leading-tight" title={people.join(', ')}>
-            {shown.length > 0 ? shown.map((p, i) => (<div key={i}>{p}</div>)) : '-' }
+            {shown.length > 0 ? shown.map((p, i) => (
+              <div key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{p}</div>
+            )) : '-' }
             {extra > 0 && <div className="text-[10px] text-gray-600">+{extra} 名</div>}
           </div>
         </div>
@@ -874,9 +887,19 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
                 {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
               </div>
               <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
-                {(() => { const maxShow=4; const shown=people.slice(0,maxShow); const extra=people.length-shown.length; return (<>
-                  {shown.join('、') || '-'}{extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
-                </>); })()}
+                {(() => {
+                  const maxShow = 4;
+                  const shown = people.slice(0, maxShow);
+                  const extra = people.length - shown.length;
+                  return (
+                    <span>
+                      {shown.length>0 ? shown.map((p,i)=>(
+                        <span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>
+                      )) : '-'}
+                      {extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           );
@@ -922,7 +945,7 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
   );
 }
 
-function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
+function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode, highlightName='' }) {
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
   const end = half === 'H1' ? Math.min(15, dmax) : dmax;
@@ -952,7 +975,9 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
     const reqDay = cfg.reqDay[iso] ?? 0;
     const reqNight = cfg.reqNight[iso] ?? 0;
     const dayPeople = hasDay ? (adoptedByMode.day.bySlot[`${iso}_DAY`] || []) : [];
+    const dayHasSel = highlightName && dayPeople.includes(highlightName);
     const nightPeople = hasNight ? (adoptedByMode.night.bySlot[`${iso}_NIGHT`] || []) : [];
+    const nightHasSel = highlightName && nightPeople.includes(highlightName);
 
     cells.push(
       <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>
@@ -963,21 +988,21 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
         <div className="space-y-1 text-xs">
           <div className="flex items-start gap-2">
             <span className="px-2 py-0.5 rounded border bg-yellow-200">昼</span>
-            <div className="flex-1">
+            <div className={`flex-1 ${dayHasSel ? 'ring-2 ring-amber-400 rounded' : ''}`}>
               <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (dayPeople.length < reqDay) ? '#DC2626' : '#16A34A'}}>
                 {dayPeople.length}/{reqDay}
               </div>
-              {dayPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
+              {dayPeople.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
               {dayPeople.length>4 && <span className="text-gray-500">+{dayPeople.length-4}</span>}
             </div>
           </div>
           <div className="flex items-start gap-2">
             <span className="px-2 py-0.5 rounded border bg-indigo-200">夜</span>
-            <div className="flex-1">
+            <div className={`flex-1 ${nightHasSel ? 'ring-2 ring-amber-400 rounded' : ''}`}>
               <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>
                 {nightPeople.length}/{reqNight}
               </div>
-              {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
+              {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
               {nightPeople.length>4 && <span className="text-gray-500">+{nightPeople.length-4}</span>}
             </div>
           </div>
