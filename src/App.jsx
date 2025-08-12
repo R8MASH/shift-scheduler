@@ -443,7 +443,7 @@ export default function ShiftSchedulerApp() {
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
             {/* ハイライト選択 */}
-            <span className="ml-4 text-sm text-gray-600">ハイライト</span>
+            <span className="ml-4 text-sm text-gray-600">　ハイライト</span>
             <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
               <option value="">なし</option>
               {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
