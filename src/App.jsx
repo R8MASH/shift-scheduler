@@ -320,10 +320,6 @@ export default function ShiftSchedulerApp() {
       return { ...m, availability: avail, preferred_slots: pref };
     }));
   };
-      const nextModes = Object.fromEntries(Object.keys(now.modes).map((iso) => [iso, mode]));
-      return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
-    });
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -690,7 +686,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
 function Chip({ active, onClick, children }) {
   return (
-    <button type="button" onClick={onClick} className={"px-2 py-1 rounded-full border text-sm " + (active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300")}>\
+    <button type="button" onClick={onClick} className={"px-2 py-1 rounded-full border text-sm " + (active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300")}>
       {children}
     </button>
   );
@@ -886,7 +882,7 @@ function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode }) {
           <div className="flex items-start gap-2">
             <span className="px-2 py-0.5 rounded border bg-indigo-200">夜</span>
             <div className="flex-1">
-              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text白 align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>
+              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>
                 {nightPeople.length}/{reqNight}
               </div>
               {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className="mr-1">{p}</span>))}
