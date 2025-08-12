@@ -193,6 +193,8 @@ function loadState() {
       availability: new Set(m.availability || []),
       preferred_slots: new Set(m.preferred_slots || []),
       max_consecutive: m.max_consecutive ?? 3,
+      desired_days_day: m.desired_days_day ?? m.desired_days ?? 2,
+      desired_days_night: m.desired_days_night ?? m.desired_days ?? 2,
     }));
     return s;
   } catch { return null; }
@@ -208,16 +210,16 @@ export default function ShiftSchedulerApp() {
   // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number}, periodMode: '昼'|'夜' }
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
   const [members, setMembers] = useState(persisted?.members ?? [
-    { name: "栄嶋", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "せりな", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "ここあ", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "安井", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "松原", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "高村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "田村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "坂ノ下", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "吉村", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "小原", availability: new Set(), desired_days: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "栄嶋", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "せりな", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "ここあ", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "安井", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "松原", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "高村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "田村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "坂ノ下", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "吉村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "小原", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
@@ -298,9 +300,42 @@ export default function ShiftSchedulerApp() {
     return out;
   }, [cfg, year, month, half]);
 
+  // 提案モード（昼/夜）タブ
+  const [proposalTab, setProposalTab] = useState('昼');
+
+  // 提案用スロット（昼固定/夜固定）
+  const slotsProposal = useMemo(() => {
+    let isoKeys = Object.keys(cfg.modes || {}).sort();
+    if (isoKeys.length === 0) {
+      const dmax = daysInMonth(year, month);
+      const start = half === 'H1' ? 1 : 16;
+      const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+      isoKeys = [];
+      for (let d = start; d <= end; d++) isoKeys.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    }
+    const out = [];
+    for (const iso of isoKeys) {
+      const required = proposalTab === '昼' ? (cfg.reqDay[iso] ?? 1) : (cfg.reqNight[iso] ?? 1);
+      const id = `${iso}_${proposalTab === '昼' ? 'DAY' : 'NIGHT'}`;
+      const label = `${iso} (${weekdayJ(iso)}) ${proposalTab}`;
+      out.push({ id, label, required, iso, mode: proposalTab });
+    }
+    return out;
+  }, [cfg, proposalTab, year, month, half]);
+
+  // メンバーの可用IDを提案モードに合わせてリマップ、希望日数も昼夜別を反映
+  const membersProposal = useMemo(() => (
+    members.map(m => {
+      const target = proposalTab === '昼' ? 'DAY' : 'NIGHT';
+      const avail = new Set(Array.from(m.availability || []).map(sid => `${String(sid).split('_')[0]}_${target}`));
+      const desired = proposalTab === '昼' ? (m.desired_days_day ?? m.desired_days ?? 0) : (m.desired_days_night ?? m.desired_days ?? 0);
+      return { ...m, availability: avail, desired_days: desired };
+    })
+  ), [members, proposalTab]);
+
   const candidates = useMemo(
-    () => generateCandidates(members, slots, numCandidates, minSat),
-    [members, slots, numCandidates, minSat]
+    () => generateCandidates(membersProposal, slotsProposal, numCandidates, minSat),
+    [membersProposal, slotsProposal, numCandidates, minSat]
   );
 
   // 全日一括：昼／夜
@@ -397,6 +432,9 @@ export default function ShiftSchedulerApp() {
             <span className="text-sm text-gray-600">表示</span>
             <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('list')}>リスト</button>
             <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('calendar')}>カレンダー</button>
+            <span className="ml-4 text-sm text-gray-600">提案モード</span>
+            <button type="button" className={`px-2 py-1 text-sm rounded border ${proposalTab==='昼'?'bg-yellow-200':'bg-white'}`} onClick={()=>setProposalTab('昼')}>昼</button>
+            <button type="button" className={`px-2 py-1 text-sm rounded border ${proposalTab==='夜'?'bg-indigo-200':'bg-white'}`} onClick={()=>setProposalTab('夜')}>夜</button>
             <label className="ml-4 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
@@ -404,6 +442,7 @@ export default function ShiftSchedulerApp() {
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
             </div>
+          </div>
           </div>
           {candidates.length === 0 ? (
             <div className="text-gray-500">条件を満たす案がありません。しきい値を下げるか、希望を広げてください。</div>
@@ -650,8 +689,10 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
         <div className="rounded-xl border p-3 space-y-3">
           <div className="flex gap-2 items-center">
             <input className="border rounded px-2 py-1" value={members[active].name} onChange={(e) => updateMember(active, { name: e.target.value })} />
-            <label className="text-sm text-gray-600 ml-auto">希望日数</label>
-            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days} onChange={(e) => updateMember(active, { desired_days: parseInt(e.target.value || '0') })} />
+            <label className="text-sm text-gray-600 ml-auto">希望日数（昼）</label>
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_day ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_day: parseInt(e.target.value || '0') })} />
+            <label className="text-sm text-gray-600 ml-4">希望日数（夜）</label>
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
@@ -753,7 +794,7 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
           </div>
           <div className="flex items-center justify-between mb-1 pr-12">
             <div className="text-sm font-medium">{d}</div>
-            <div className="text-xs text-gray-700">{cfg.modes[iso] || '昼'}</div>
+            <div className="text-xs text-gray-700">{mode}</div>
           </div>
           <div className="text-xs leading-tight" title={people.join(', ')}>
             {shown.length > 0 ? shown.map((p, i) => (<div key={i}>{p}</div>)) : '-' }
