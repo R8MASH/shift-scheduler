@@ -327,9 +327,11 @@ export default function ShiftSchedulerApp() {
   const membersProposal = useMemo(() => (
     members.map(m => {
       const target = proposalTab === '昼' ? 'DAY' : 'NIGHT';
-      const avail = new Set(Array.from(m.availability || []).map(sid => `${String(sid).split('_')[0]}_${target}`));
+      // 昼夜を共有せず、対象モードの可用/優先だけを使用
+      const avail = new Set(Array.from(m.availability || []).filter(sid => String(sid).endsWith(`_${target}`)));
+      const pref  = new Set(Array.from(m.preferred_slots || []).filter(sid => String(sid).endsWith(`_${target}`)));
       const desired = proposalTab === '昼' ? (m.desired_days_day ?? m.desired_days ?? 0) : (m.desired_days_night ?? m.desired_days ?? 0);
-      return { ...m, availability: avail, desired_days: desired };
+      return { ...m, availability: avail, preferred_slots: pref, desired_days: desired };
     })
   ), [members, proposalTab]);
 
