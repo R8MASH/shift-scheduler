@@ -443,7 +443,6 @@ export default function ShiftSchedulerApp() {
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
             </div>
           </div>
-          </div>
           {candidates.length === 0 ? (
             <div className="text-gray-500">条件を満たす案がありません。しきい値を下げるか、希望を広げてください。</div>
           ) : (
@@ -453,14 +452,14 @@ export default function ShiftSchedulerApp() {
                   key={idx}
                   idx={idx}
                   assn={c}
-                  slots={slots}
+                  slots={slotsProposal}
                   viewMode={viewMode}
                   onlyLack={onlyLack}
                   year={year}
                   month={month}
                   half={half}
                   cfg={cfg}
-                  mode={cfg.periodMode}
+                  mode={proposalTab}
                   adoptedByMode={(adopted[periodKey(year, month, half)] || {})}
                   onToggleAdopt={(mode, nextChecked, assn) => {
                     setAdopted(prev => {
