@@ -292,9 +292,34 @@ export default function ShiftSchedulerApp() {
 
   // 全日一括：昼／夜
   const bulkSetMode = (mode) => {
+    const key = periodKey(year, month, half);
+    // 変更前のモードを取得（この期間の全ISO）
+    const before = periodConfigs[key] || { modes: {} };
+    const beforeModes = before.modes || {};
+    const isos = Object.keys(beforeModes);
+
+    // 期間設定を更新（全日を指定モードに）
     setPeriodConfigs((prev) => {
-      const key = periodKey(year, month, half);
       const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
+      const nextModes = Object.fromEntries(Object.keys(now.modes).map((iso) => [iso, mode]));
+      return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
+    });
+
+    // メンバーの availability / preferred_slots 内のIDを、新モードIDへリマップ
+    setMembers((arr) => arr.map((m) => {
+      const avail = new Set(m.availability);
+      const pref = new Set(m.preferred_slots);
+      for (const iso of isos) {
+        const prevId = `${iso}_${beforeModes[iso] === '昼' ? 'DAY' : 'NIGHT'}`;
+        const nextId = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
+        if (prevId !== nextId) {
+          if (avail.has(prevId)) { avail.delete(prevId); avail.add(nextId); }
+          if (pref.has(prevId)) { pref.delete(prevId); pref.add(nextId); }
+        }
+      }
+      return { ...m, availability: avail, preferred_slots: pref };
+    }));
+  };
       const nextModes = Object.fromEntries(Object.keys(now.modes).map((iso) => [iso, mode]));
       return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
     });
