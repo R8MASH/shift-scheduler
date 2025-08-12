@@ -651,6 +651,30 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
     });
   };
 
+  // 昼/夜 全選択トグル（この半月の範囲内のみ）
+  const bulkToggleAll = (idx, target /* 'DAY' | 'NIGHT' */) => {
+    setMembers((arr) => {
+      const copy = [...arr];
+      const dmax = daysInMonth(year, month);
+      const start = half === 'H1' ? 1 : 16;
+      const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+      const avail = new Set(copy[idx].availability);
+      const ids = [];
+      for (let d = start; d <= end; d++) {
+        const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        ids.push(`${iso}_${target}`);
+      }
+      const allOn = ids.every(id => avail.has(id));
+      if (allOn) {
+        ids.forEach(id => avail.delete(id)); // 全解除
+      } else {
+        ids.forEach(id => avail.add(id));    // 全選択
+      }
+      copy[idx] = { ...copy[idx], availability: avail };
+      return copy;
+    });
+  };
+
   // カレンダー範囲
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
@@ -684,6 +708,9 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
+            {/* 全選択（昼/夜） */}
+            <button type="button" className="ml-4 px-2 py-1 text-xs rounded border bg-yellow-200" onClick={() => bulkToggleAll(active, 'DAY')}>昼 全選択/解除</button>
+            <button type="button" className="px-2 py-1 text-xs rounded border bg-indigo-200" onClick={() => bulkToggleAll(active, 'NIGHT')}>夜 全選択/解除</button>
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
           </div>
 
