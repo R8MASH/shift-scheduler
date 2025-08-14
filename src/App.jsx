@@ -234,7 +234,7 @@ export default function ShiftSchedulerApp() {
   // 状態の永続化
   useEffect(() => {
     saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted]);
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName]);
 
   // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
   useEffect(() => {
@@ -352,30 +352,14 @@ export default function ShiftSchedulerApp() {
     for (let d = start; d <= end; d++) {
       isos.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
     }
-
-    // 期間設定を更新（キーが空でも全日埋める）
     setPeriodConfigs((prev) => {
       const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
       const nextModes = Object.fromEntries(isos.map((iso) => [iso, mode]));
       return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
     });
-
-    // メンバーの availability / preferred_slots を新モードIDへリマップ
-    setMembers((arr) => arr.map((m) => {
-      const avail = new Set(m.availability);
-      const pref = new Set(m.preferred_slots);
-      for (const iso of isos) {
-        const dayId = `${iso}_DAY`;
-        const nightId = `${iso}_NIGHT`;
-        const nextId = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
-        if (dayId !== nextId && avail.has(dayId)) { avail.delete(dayId); avail.add(nextId); }
-        if (nightId !== nextId && avail.has(nightId)) { avail.delete(nightId); avail.add(nextId); }
-        if (dayId !== nextId && pref.has(dayId)) { pref.delete(dayId); pref.add(nextId); }
-        if (nightId !== nextId && pref.has(nightId)) { pref.delete(nightId); pref.add(nextId); }
-      }
-      return { ...m, availability: avail, preferred_slots: pref };
-    }));
   };
+   
+
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -443,7 +427,7 @@ export default function ShiftSchedulerApp() {
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
             {/* ハイライト選択 */}
-            <span className="ml-4 text-sm text-gray-600">　ハイライト</span>
+            <span className="ml-4 text-sm text-gray-600">ハイライト</span>
             <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
               <option value="">なし</option>
               {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
@@ -757,8 +741,8 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
                   {/* 昼 行 */}
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
-                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-xs border rounded px-2 py-0.5 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-sm border rounded px-3 py-1 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
                       {isAvailDay ? '勤務可能' : '未選択'}
                     </button>
                     <label className="flex items-center gap-1 text-xs">
@@ -768,8 +752,8 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
                   {/* 夜 行 */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
-                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-xs border rounded px-2 py-0.5 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-sm border rounded px-3 py-1 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
                       {isAvailNight ? '勤務可能' : '未選択'}
                     </button>
                     <label className="flex items-center gap-1 text-xs">
