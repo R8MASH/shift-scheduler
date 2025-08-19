@@ -3,24 +3,8 @@ import JapaneseHolidays from "japanese-holidays";
 
 // ===============================
 // Shift Scheduler Web App (React)
-// - 1日1枠（昼 or 夜）
-// - 前半(1-15) / 後半(16-末) 切替
-// - 昼夜で必要人数を別々に保持
-// - 祝日/土日色分け
-// - メンバー希望（カレンダーで可/優先）
-// - 候補生成＆不足ハイライト
-// - 提案ビュー：リスト / カレンダー
-// - 昼夜別に「採用」→ 統合カレンダー表示
-// - 連勤制限（デフォルト3、個別設定可）
-// - ローカル保存/復元
 // ===============================
 
-/** 型の目安
- * Slot: { id: string, label: string, required: number, iso: string, mode: '昼'|'夜' }
- * Member: { name: string, availability: Set<string>, desired_days: number, preferred_slots: Set<string>, max_consecutive?: number }
- */
-
-// ===== スケジューラ（必要人数最優先 2パス + 連勤制限） =====
 function computeSatisfaction(member, assigned) {
   if (member.desired_days <= 0) {
     return member.preferred_slots.size === 0
@@ -38,7 +22,7 @@ function computeSatisfaction(member, assigned) {
   return coverRatio;
 }
 
-function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
+function greedySchedule(members, slots, seed = 0, balanceBias = 0.6, pairHint = null, pairWeight = 0.5) {
   const rng = mulberry32(seed);
   const bySlot = Object.fromEntries(slots.map((s) => [s.id, []]));
   const byMember = Object.fromEntries(members.map((m) => [m.name, []]));
@@ -52,7 +36,13 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
     const deficit = Math.max(0, member.desired_days - byMember[member.name].length);
     const fairness = balanceBias * (deficit / Math.max(1, member.desired_days));
     const loadPenalty = 0.05 * byMember[member.name].length;
-    return prefBonus + fairness - loadPenalty + rng();
+    let pairBonus = 0;
+    if (pairHint) {
+      const iso = slotId.split('_')[0];
+      const set = pairHint.get(member.name);
+      if (set && set.has(iso)) pairBonus = Math.max(0, Math.min(1, pairWeight));
+    }
+    return prefBonus + fairness - loadPenalty + pairBonus + rng();
   };
 
   for (const slot of order) {
@@ -61,7 +51,6 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
       .filter((m) => m.availability.has(slot.id))
       .sort((a, b) => candidateScore(b, slot.id) - candidateScore(a, slot.id));
 
-    // パス1: 希望日数(+1のゆるい上限)を尊重
     for (const m of candidates) {
       if (needed <= 0) break;
       if (byMember[m.name].length >= Math.max(1, m.desired_days + 1)) continue;
@@ -71,11 +60,10 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
       byMember[m.name].push(slot.id);
       needed -= 1;
     }
-    // パス2: まだ足りなければ上限を外してでも充足（必要人数最優先）
     if (needed > 0) {
       for (const m of candidates) {
         if (needed <= 0) break;
-        if (bySlot[slot.id].includes(m.name)) continue; // 既に割当済み
+        if (bySlot[slot.id].includes(m.name)) continue;
         const maxConsec = Number.isFinite(m.max_consecutive) ? m.max_consecutive : 3;
         if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec)) continue;
         bySlot[slot.id].push(m.name);
@@ -99,12 +87,12 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
   return { bySlot, byMember, satisfaction, score };
 }
 
-function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7) {
+function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7, pairHint = null, pairWeight = 0.5) {
   const results = [];
   let seed = 0, tried = 0;
   while (results.length < n && tried < n * 30) {
     const bias = 0.4 + 0.4 * ((seed % 10) / 9 || 0);
-    const assn = greedySchedule(members, slots, seed, bias);
+    const assn = greedySchedule(members, slots, seed, bias, pairHint, pairWeight);
     const minSat = Math.min(...Object.values(assn.satisfaction));
     if (!Number.isNaN(minSat) && minSat >= minSatisfaction) {
       const sig = JSON.stringify(
@@ -120,7 +108,6 @@ function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7) {
   return results.sort((a, b) => b.score - a.score);
 }
 
-// ===== ヘルパ =====
 function setIntersect(a, b) { const out = new Set(); for (const x of a) if (b.has(x)) out.add(x); return out; }
 function shuffle(arr, rng) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
 function mulberry32(a) { return function() { let t=(a+=0x6d2b79f5); t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
@@ -132,7 +119,6 @@ function weekdayJ(iso) {
   return ['日','月','火','水','木','金','土'][w];
 }
 
-// --- 連勤制限ヘルパ ---
 function isoAddDays(iso, delta){
   const [y,m,d] = iso.split('-').map(Number);
   const dt = new Date(y, m-1, d + delta);
@@ -153,7 +139,6 @@ function wouldExceedConsecutive(existingSlotIds, candidateIso, max){
   return total > max;
 }
 
-// 日本の祝日判定（ライブラリ利用） & 色決定
 function isHolidayISO(iso) {
   const [y,m,d] = iso.split('-').map(Number);
   const date = new Date(y, m-1, d);
@@ -163,12 +148,11 @@ function weekendHolidayBg(iso, periodMode) {
   const [y,m,d] = iso.split('-').map(Number);
   const date = new Date(y, m-1, d);
   const dow = date.getDay();
-  if (JapaneseHolidays.isHoliday(date) || dow === 0) return '#FFE4E6'; // 祝日・日曜: 薄赤
-  if (dow === 6) return '#DBEAFE'; // 土曜: 薄青
-  return periodMode === '昼' ? '#FFFBEB' : '#EEF2FF'; // 平日: 期間モード色
+  if (JapaneseHolidays.isHoliday(date) || dow === 0) return '#FFE4E6';
+  if (dow === 6) return '#DBEAFE';
+  return periodMode === '昼' ? '#FFFBEB' : '#EEF2FF';
 }
 
-// ===== 永続化（ローカルストレージ） =====
 const LS_KEY = 'shift-scheduler-demo/state/v5';
 function saveState(state) {
   try {
@@ -196,18 +180,17 @@ function loadState() {
       desired_days_day: m.desired_days_day ?? m.desired_days ?? 2,
       desired_days_night: m.desired_days_night ?? m.desired_days ?? 2,
     }));
+    s.pairStrength = s.pairStrength ?? 0.5;
     return s;
   } catch { return null; }
 }
 
-// ===== アプリ本体 =====
 export default function ShiftSchedulerApp() {
   const persisted = loadState();
   const today = new Date();
   const [year, setYear] = useState(persisted?.year ?? today.getFullYear());
   const [month, setMonth] = useState(persisted?.month ?? (today.getMonth() + 1));
   const [half, setHalf] = useState(persisted?.half ?? 'H1');
-  // periodConfigs[key] = { modes: {iso:'昼|夜'}, reqDay: {iso:number}, reqNight: {iso:number}, periodMode: '昼'|'夜' }
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
   const [members, setMembers] = useState(persisted?.members ?? [
     { name: "栄嶋", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
@@ -223,20 +206,16 @@ export default function ShiftSchedulerApp() {
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
-  // 提案表示の見やすさ向上用トグル
-  const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list'); // 'list' | 'calendar'
+  const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
-  // 昼夜ごとの「採用」候補（期間キー別に保存） { [periodKey]: { day: AssnSnap|null, night: AssnSnap|null } }
   const [adopted, setAdopted] = useState(persisted?.adopted ?? {});
-  // ハイライト対象メンバー（候補/採用カレンダーで強調表示）
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
+  const [pairStrength, setPairStrength] = useState(persisted?.pairStrength ?? 0.5);
 
-  // 状態の永続化
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName]);
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName, pairStrength });
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName, pairStrength]);
 
-  // 期間の欠損日を毎回デフォルトで埋める（初期化安定 & 旧データ移行）
   useEffect(() => {
     const key = periodKey(year, month, half);
     setPeriodConfigs((prev) => {
@@ -253,7 +232,6 @@ export default function ShiftSchedulerApp() {
         defaultsReqNight[iso] = 1;
       }
       const cur = prev[key] || { modes: {}, reqs: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
-      // 旧フィールド reqs があれば、それを両方に流用
       const mergedDay = { ...defaultsReqDay, ...(cur.reqDay || {}), ...(cur.reqs || {}) };
       const mergedNight = { ...defaultsReqNight, ...(cur.reqNight || {}), ...(cur.reqs || {}) };
       const modes = { ...defaultsModes, ...(cur.modes || {}) };
@@ -262,7 +240,6 @@ export default function ShiftSchedulerApp() {
   }, [year, month, half]);
 
   const cfgRaw = periodConfigs[periodKey(year, month, half)] || {};
-  // 旧データ（reqsのみ）でも落ちないように正規化
   const cfg = {
     modes: {},
     reqDay: {},
@@ -273,7 +250,6 @@ export default function ShiftSchedulerApp() {
     reqNight: { ...(cfgRaw.reqs || {}), ...(cfgRaw.reqNight || {}) },
   };
 
-  // スロット（各日1枠：昼/夜 + 曜日表示）
   const slots = useMemo(() => {
     const out = [];
     const reqDay = cfg.reqDay || {};
@@ -281,7 +257,6 @@ export default function ShiftSchedulerApp() {
     const legacy = cfg.reqs || {};
 
     let isoKeys = Object.keys(cfg.modes || {}).sort();
-    // フォールバック：modes が空の場合でも半月分を生成
     if (isoKeys.length === 0) {
       const dmax = daysInMonth(year, month);
       const start = half === 'H1' ? 1 : 16;
@@ -302,10 +277,8 @@ export default function ShiftSchedulerApp() {
     return out;
   }, [cfg, year, month, half]);
 
-  // 提案モード（昼/夜）タブ
   const [proposalTab, setProposalTab] = useState('昼');
 
-  // 提案用スロット（昼固定/夜固定）
   const slotsProposal = useMemo(() => {
     let isoKeys = Object.keys(cfg.modes || {}).sort();
     if (isoKeys.length === 0) {
@@ -325,11 +298,9 @@ export default function ShiftSchedulerApp() {
     return out;
   }, [cfg, proposalTab, year, month, half]);
 
-  // メンバーの可用IDを提案モードに合わせてリマップ、希望日数も昼夜別を反映
   const membersProposal = useMemo(() => (
     members.map(m => {
       const target = proposalTab === '昼' ? 'DAY' : 'NIGHT';
-      // 昼夜を共有せず、対象モードの可用/優先だけを使用
       const avail = new Set(Array.from(m.availability || []).filter(sid => String(sid).endsWith(`_${target}`)));
       const pref  = new Set(Array.from(m.preferred_slots || []).filter(sid => String(sid).endsWith(`_${target}`)));
       const desired = proposalTab === '昼' ? (m.desired_days_day ?? m.desired_days ?? 0) : (m.desired_days_night ?? m.desired_days ?? 0);
@@ -338,11 +309,23 @@ export default function ShiftSchedulerApp() {
   ), [members, proposalTab]);
 
   const candidates = useMemo(
-    () => generateCandidates(membersProposal, slotsProposal, numCandidates, minSat),
-    [membersProposal, slotsProposal, numCandidates, minSat]
+    () => generateCandidates(membersProposal, slotsProposal, numCandidates, minSat, (() => {
+      const k = periodKey(year, month, half);
+      const opp = proposalTab === '昼' ? (adopted[k]?.night) : (adopted[k]?.day);
+      if (!opp || !opp.bySlot) return null;
+      const map = new Map();
+      for (const [sid, people] of Object.entries(opp.bySlot)) {
+        const iso = sid.split('_')[0];
+        for (const p of people) {
+          if (!map.has(p)) map.set(p, new Set());
+          map.get(p).add(iso);
+        }
+      }
+      return map;
+    })(), pairStrength),
+    [membersProposal, slotsProposal, numCandidates, minSat, adopted, proposalTab, year, month, half, pairStrength]
   );
 
-  // 全日一括：昼／夜
   const bulkSetMode = (mode) => {
     const key = periodKey(year, month, half);
     const dmax = daysInMonth(year, month);
@@ -358,8 +341,6 @@ export default function ShiftSchedulerApp() {
       return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
     });
   };
-   
-
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -406,6 +387,9 @@ export default function ShiftSchedulerApp() {
               <Labeled label={`候補数: ${numCandidates}`}>
                 <input type="range" min={1} max={10} step={1} value={numCandidates} onChange={(e) => setNumCandidates(parseInt(e.target.value))} className="w-full" />
               </Labeled>
+              <Labeled label={`同日集約の強さ: ${(pairStrength * 100).toFixed(0)}%`}>
+                <input type="range" min={0} max={1} step={0.05} value={pairStrength} onChange={(e) => setPairStrength(parseFloat(e.target.value))} className="w-full" />
+              </Labeled>
               <p className="text-xs text-gray-500">必要人数はモード別。モード切替しても数値は保持されます。</p>
             </div>
           </Panel>
@@ -426,7 +410,6 @@ export default function ShiftSchedulerApp() {
             <label className="ml-4 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
-            {/* ハイライト選択 */}
             <span className="ml-4 text-sm text-gray-600">ハイライト</span>
             <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
               <option value="">なし</option>
@@ -476,7 +459,6 @@ export default function ShiftSchedulerApp() {
           )}
         </Panel>
 
-        {/* 採用（昼・夜）統合カレンダー */}
         <Panel title="採用（昼・夜）統合カレンダー">
           <AdoptedMergedCalendar
             year={year}
@@ -494,7 +476,6 @@ export default function ShiftSchedulerApp() {
   );
 }
 
-// ===== UI 小物 =====
 function Panel({ title, children }) {
   return (
     <section className="bg-white rounded-2xl shadow p-4">
@@ -532,13 +513,12 @@ function PeriodControls({ year, month, half, setYear, setMonth, setHalf }) {
   );
 }
 
-// ===== カレンダー（半月範囲だけ編集可能：昼夜別必要人数） =====
 function CalendarHalf({ year, month, half, cfg, onChange }) {
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
   const end = half === 'H1' ? Math.min(15, dmax) : dmax;
 
-  const firstDow = new Date(year, month - 1, 1).getDay(); // 0=日
+  const firstDow = new Date(year, month - 1, 1).getDay();
   let day = 1;
   const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
 
@@ -612,7 +592,6 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   );
 }
 
-// ===== メンバー編集（タブ + 開閉） =====
 function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
@@ -621,13 +600,11 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const remove = (idx) => setMembers((arr) => arr.filter((_, i) => i !== idx));
   const updateMember = (idx, patch) => setMembers((arr) => arr.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
 
-  // 昼夜それぞれのスロットIDを扱う（期間モードに依存せず常に昼夜を表示）
   const toggleAvailSlot = (idx, slotId) => {
     setMembers((arr) => {
       const copy = [...arr];
       const set = new Set(copy[idx].availability);
       if (set.has(slotId)) set.delete(slotId); else set.add(slotId);
-      // 優先の整合性維持
       const pref = new Set(copy[idx].preferred_slots);
       if (!set.has(slotId) && pref.has(slotId)) pref.delete(slotId);
       copy[idx] = { ...copy[idx], availability: set, preferred_slots: pref };
@@ -645,8 +622,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
     });
   };
 
-  // 昼/夜 全選択トグル（この半月の範囲内のみ）
-  const bulkToggleAll = (idx, target /* 'DAY' | 'NIGHT' */) => {
+  const bulkToggleAll = (idx, target) => {
     setMembers((arr) => {
       const copy = [...arr];
       const dmax = daysInMonth(year, month);
@@ -660,16 +636,15 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
       }
       const allOn = ids.every(id => avail.has(id));
       if (allOn) {
-        ids.forEach(id => avail.delete(id)); // 全解除
+        ids.forEach(id => avail.delete(id));
       } else {
-        ids.forEach(id => avail.add(id));    // 全選択
+        ids.forEach(id => avail.add(id));
       }
       copy[idx] = { ...copy[idx], availability: avail };
       return copy;
     });
   };
 
-  // カレンダー範囲
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
   const end = half === 'H1' ? Math.min(15, dmax) : dmax;
@@ -678,7 +653,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
   return (
     <div className="space-y-3">
-      {/* タブヘッダ */}
       <div className="flex flex-wrap gap-2">
         {members.map((m, idx) => (
           <button
@@ -691,7 +665,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
         <button type="button" className="px-3 py-1 rounded border text-sm" onClick={add}>+ 追加</button>
       </div>
 
-      {/* アクティブタブ内容（カレンダー） */}
       {members[active] && !collapsed && (
         <div className="rounded-xl border p-3 space-y-3">
           <div className="flex gap-2 items-center">
@@ -702,7 +675,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
-            {/* 全選択（昼/夜） */}
             <button type="button" className="ml-4 px-2 py-1 text-xs rounded border bg-yellow-200" onClick={() => bulkToggleAll(active, 'DAY')}>昼 全選択/解除</button>
             <button type="button" className="px-2 py-1 text-xs rounded border bg-indigo-200" onClick={() => bulkToggleAll(active, 'NIGHT')}>夜 全選択/解除</button>
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
@@ -710,14 +682,12 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 
           <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（昼・夜それぞれに「勤務可能」と「優先」を個別に設定できます）。</div>
 
-          {/* 曜日ヘッダ */}
           <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
             {['日','月','火','水','木','金','土'].map((w) => (
               <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
             ))}
           </div>
 
-          {/* 月カレンダー */}
           <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
             {Array.from({length: totalCells}, (_, i) => i).map((i) => {
               const empty = i < firstDow || i - firstDow + 1 > dmax;
@@ -739,7 +709,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
                     <div className="text-xs text-gray-500">({['日','月','火','水','木','金','土'][new Date(year, month-1, d).getDay()]})</div>
                   </div>
 
-                  {/* 昼 行 */}
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[11px] px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
                     <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-sm border rounded px-3 py-1 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
@@ -750,7 +719,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
                     </label>
                   </div>
 
-                  {/* 夜 行 */}
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
                     <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-sm border rounded px-3 py-1 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
@@ -782,10 +750,8 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
 
-  // 補助: ISO→スロット検索（この期間は各ISO1枠）
   const slotByIso = React.useMemo(() => Object.fromEntries(slots.map(s => [s.iso, s])), [slots]);
 
-  // カレンダー描画（半月）
   const CalendarView = () => {
     const dmax = daysInMonth(year, month);
     const start = half === 'H1' ? 1 : 16;
@@ -817,7 +783,6 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
       const extra = people.length - shown.length;
       cells.push(
         <div key={iso} className={`relative border rounded p-2 ${selectedInCell ? 'ring-2 ring-amber-400' : ''}`} style={{minHeight:'86px', background:bg}}>
-          {/* 右上バッジ：割当/必要 */}
           <div className={`absolute top-1 right-1 text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>
             {people.length}/{required}
           </div>
@@ -849,7 +814,6 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
     );
   };
 
-  // リスト描画
   const ListView = () => (
     <div className="space-y-2 text-sm">
       {[...Object.entries(assn.bySlot)]
@@ -906,13 +870,11 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
         <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
 
-      {/* 上: 提案カレンダー/リスト */}
       <div className="mt-3">
         <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
         {viewMode==='calendar' ? <CalendarView /> : <ListView />}
       </div>
 
-      {/* 下: 充足率 */}
       <div className="mt-4">
         <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
         <div className="space-y-2">
