@@ -87,26 +87,42 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6, pairHint = 
   return { bySlot, byMember, satisfaction, score };
 }
 
-function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7, pairHint = null, pairWeight = 0.5) {
-  const results = [];
+function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7) {
+  const accepted = [];
+  const bestSeen = [];
   let seed = 0, tried = 0;
-  while (results.length < n && tried < n * 30) {
+  const pushUnique = (arr, assn) => {
+    const sig = JSON.stringify(
+      Object.fromEntries(Object.entries(assn.bySlot).map(([k, v]) => [k, [...v].sort()]))
+    );
+    if (!arr.some((r) => r.__sig === sig)) {
+      assn.__sig = sig;
+      arr.push(assn);
+    }
+  };
+
+  while (accepted.length < n && tried < n * 40) {
     const bias = 0.4 + 0.4 * ((seed % 10) / 9 || 0);
-    const assn = greedySchedule(members, slots, seed, bias, pairHint, pairWeight);
+    const assn = greedySchedule(members, slots, seed, bias);
+    pushUnique(bestSeen, assn);
     const minSat = Math.min(...Object.values(assn.satisfaction));
     if (!Number.isNaN(minSat) && minSat >= minSatisfaction) {
-      const sig = JSON.stringify(
-        Object.fromEntries(Object.entries(assn.bySlot).map(([k, v]) => [k, [...v].sort()]))
-      );
-      if (!results.some((r) => r.__sig === sig)) {
-        assn.__sig = sig;
-        results.push(assn);
-      }
+      pushUnique(accepted, assn);
     }
     seed += 1; tried += 1;
   }
-  return results.sort((a, b) => b.score - a.score);
+
+  if (accepted.length > 0) {
+    return accepted.sort((a, b) => b.score - a.score).slice(0, n);
+  }
+
+  if (bestSeen.length > 0) {
+    return bestSeen.sort((a, b) => b.score - a.score).slice(0, n);
+  }
+
+  return [];
 }
+
 
 function setIntersect(a, b) { const out = new Set(); for (const x of a) if (b.has(x)) out.add(x); return out; }
 function shuffle(arr, rng) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
