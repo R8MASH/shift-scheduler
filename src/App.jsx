@@ -174,16 +174,7 @@ export default function ShiftSchedulerApp() {
   const [half, setHalf] = useState(persisted?.half ?? 'H1');
   const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {}); // { [key]: { reqDay:{iso:n}, reqNight:{iso:n} } }
   const [members, setMembers] = useState(persisted?.members ?? [
-    { name: "栄嶋", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "せりな", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "ここあ", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "安井", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "松原", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "高村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "田村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "坂ノ下", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "吉村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "小原", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+ 
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
@@ -289,47 +280,60 @@ export default function ShiftSchedulerApp() {
           <TabbedMemberEditor year={year} month={month} half={half} cfg={cfg} members={members} setMembers={setMembers} />
         </Panel>
 
-        <Panel title="候補スケジュール（昼・夜 / 不足日は赤ハイライト）">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-gray-600">表示</span>
-            <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('list')}>リスト</button>
-            <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('calendar')}>カレンダー</button>
-            <label className="ml-4 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
-            </label>
-            <span className="ml-4 text-sm text-gray-600">ハイライト</span>
-            <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
-              <option value="">なし</option>
-              {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
-            </select>
-            <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
-              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
-              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
-            </div>
-          </div>
+        <Panel title="候補スケジュール（昼夜まとめて表示／不足は赤）">
+  <div className="flex items-center gap-2 mb-3">
+    <span className="text-sm text-gray-600">表示</span>
+    <button
+      type="button"
+      className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
+      onClick={()=>setViewMode('list')}
+    >リスト</button>
+    <button
+      type="button"
+      className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
+      onClick={()=>setViewMode('calendar')}
+    >カレンダー</button>
 
-          <h3 className="font-semibold mb-2">昼の候補</h3>
-          {candidatesDay.length === 0 ? (
-            <div className="text-gray-500 mb-4">昼の候補がありません。必要人数やしきい値を調整してください。</div>
-          ) : (
-            <div className="grid gap-4 mb-6">
-              {candidatesDay.map((c, idx) => (
-                <CandidateCard key={`d${idx}`} idx={idx} assn={c} slots={slotsDay} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} mode='昼' highlightName={highlightName} />
-              ))}
-            </div>
-          )}
+    <label className="ml-4 flex items-center gap-2 text-sm">
+      <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
+    </label>
 
-          <h3 className="font-semibold mb-2">夜の候補</h3>
-          {candidatesNight.length === 0 ? (
-            <div className="text-gray-500">夜の候補がありません。必要人数やしきい値を調整してください。</div>
-          ) : (
-            <div className="grid gap-4">
-              {candidatesNight.map((c, idx) => (
-                <CandidateCard key={`n${idx}`} idx={idx} assn={c} slots={slotsNight} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} mode='夜' highlightName={highlightName} />
-              ))}
-            </div>
-          )}
-        </Panel>
+    <span className="ml-4 text-sm text-gray-600">ハイライト</span>
+    <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
+      <option value="">なし</option>
+      {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
+    </select>
+
+    <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
+      <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
+      <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
+    </div>
+  </div>
+
+  {(candidatesDay.length === 0 && candidatesNight.length === 0) ? (
+    <div className="text-gray-500">候補がありません。必要人数やしきい値、可用日を調整してください。</div>
+  ) : (
+    <div className="grid gap-4">
+      {Array.from({length: Math.max(candidatesDay.length, candidatesNight.length)}, (_,i)=>i).map(i => (
+        <CombinedCandidateCard
+          key={`c${i}`}
+          idx={i}
+          dayAssn={candidatesDay[i]}
+          nightAssn={candidatesNight[i]}
+          slotsDay={slotsDay}
+          slotsNight={slotsNight}
+          viewMode={viewMode}
+          onlyLack={onlyLack}
+          year={year}
+          month={month}
+          half={half}
+          highlightName={highlightName}
+        />
+      ))}
+    </div>
+  )}
+</Panel>
+
 
         <footer className="text-xs text-gray-500 text-center">© Shift Scheduler</footer>
       </div>
@@ -614,6 +618,155 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
     </div>
   );
 }
+
+function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, viewMode='calendar', onlyLack=false, year, month, half, highlightName='' }) {
+  const scoreText = () => {
+    const fmt = (assn)=>{
+      if(!assn) return '—';
+      const minSat = Math.min(...Object.values(assn.satisfaction));
+      const avgSat = Object.values(assn.satisfaction).reduce((a,b)=>a+b,0)/Object.values(assn.satisfaction).length;
+      return `S ${assn.score.toFixed(3)} / 最低 ${Math.round(minSat*100)}% / 平均 ${Math.round(avgSat*100)}%`;
+    };
+    return `昼: ${fmt(dayAssn)}  |  夜: ${fmt(nightAssn)}`;
+  };
+
+  const weekdayHead = (
+    <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
+      {['日','月','火','水','木','金','土'].map((w) => (
+        <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
+      ))}
+    </div>
+  );
+
+  const CalendarMerged = () => {
+    const dmax = daysInMonth(year, month);
+    const start = half === 'H1' ? 1 : 16;
+    const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    const firstDow = new Date(year, month - 1, 1).getDay();
+    const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
+
+    const slotDayByIso = Object.fromEntries((slotsDay||[]).map(s=>[s.iso,s]));
+    const slotNightByIso = Object.fromEntries((slotsNight||[]).map(s=>[s.iso,s]));
+
+    const cells = [];
+    let day = 1;
+    for (let i=0;i<totalCells;i++){
+      const empty = i < firstDow || day > dmax;
+      if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
+      const d = day++;
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const inRange = d >= start && d <= end;
+
+      const sDay = slotDayByIso[iso];
+      const sNight = slotNightByIso[iso];
+
+      const peopleDay = (dayAssn && sDay) ? (dayAssn.bySlot[sDay.id] || []) : [];
+      const peopleNight = (nightAssn && sNight) ? (nightAssn.bySlot[sNight.id] || []) : [];
+
+      const reqDay = sDay?.required ?? 0;
+      const reqNight = sNight?.required ?? 0;
+
+      const lackDay = peopleDay.length < reqDay;
+      const lackNight = peopleNight.length < reqNight;
+
+      if (onlyLack && !(lackDay || lackNight)) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
+
+      cells.push(
+        <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium">{d}</div>
+            <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className={`flex items-start gap-2 ${lackDay?'bg-red-50':'bg-green-50'} rounded px-2 py-1`}>
+              <span className="px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+              <div className={`flex-1 ${highlightName && peopleDay.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
+                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2 ${lackDay?'bg-red-600':'bg-green-600'}`}>{peopleDay.length}/{reqDay}</span>
+                {peopleDay.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
+                {peopleDay.length>4 && <span className="text-gray-500">+{peopleDay.length-4}</span>}
+              </div>
+            </div>
+            <div className={`flex items-start gap-2 ${lackNight?'bg-red-50':'bg-green-50'} rounded px-2 py-1`}>
+              <span className="px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+              <div className={`flex-1 ${highlightName && peopleNight.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
+                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2 ${lackNight?'bg-red-600':'bg-green-600'}`}>{peopleNight.length}/{reqNight}</span>
+                {peopleNight.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
+                {peopleNight.length>4 && <span className="text-gray-500">+{peopleNight.length-4}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div>
+        {weekdayHead}
+        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
+          {cells}
+        </div>
+      </div>
+    );
+  };
+
+  const ListMerged = () => (
+    <div className="space-y-2 text-sm">
+      {[...new Set([...(slotsDay||[]).map(s=>s.id), ...(slotsNight||[]).map(s=>s.id)])]
+        .sort((a,b)=> a<b?-1:1)
+        .filter((sid)=>{
+          if(!onlyLack) return true;
+          const slot = (slotsDay||[]).concat(slotsNight||[]).find(s=>s.id===sid);
+          const assn = sid.endsWith('_DAY') ? dayAssn : nightAssn;
+          const people = assn ? (assn.bySlot[sid] || []) : [];
+          const required = slot?.required ?? 0;
+          return people.length < required;
+        })
+        .map((sid)=>{
+          const slot = (slotsDay||[]).concat(slotsNight||[]).find(s=>s.id===sid);
+          const assn = sid.endsWith('_DAY') ? dayAssn : nightAssn;
+          const people = assn ? (assn.bySlot[sid] || []) : [];
+          const required = slot?.required ?? 0;
+          const lack = people.length < required;
+          return (
+            <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
+              <div>
+                {slot?.label || sid}
+                {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
+              </div>
+              <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
+                {(() => {
+                  const maxShow = 4;
+                  const shown = people.slice(0, maxShow);
+                  const extra = people.length - shown.length;
+                  return (
+                    <span>
+                      {shown.length>0 ? shown.map((p,i)=>(
+                        <span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>
+                      )) : '-'}
+                      {extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  );
+
+  return (
+    <div className="rounded-2xl border p-4 bg-white shadow">
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
+        <div className="text-xs text-gray-600">{scoreText()}</div>
+      </div>
+      <div className="mt-3">
+        <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
+        {viewMode==='calendar' ? <CalendarMerged /> : <ListMerged />}
+      </div>
+    </div>
+  );
+}
+
 
 function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, mode='昼', highlightName='' }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
