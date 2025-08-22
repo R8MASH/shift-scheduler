@@ -619,8 +619,7 @@ function PeopleChips({ people = [], highlightName = "" }) {
   const Chip = ({ name }) => (
     <span
       className={
-        // 文字が潰れないように小さめフォント＆詰め気味の余白、改行禁止
-        "inline-flex justify-center items-center px-1.5 py-0.5 rounded-full border " +
+        "inline-flex items-center justify-center px-1.5 py-0.5 rounded-full border " +
         "text-[11px] leading-[1.05] whitespace-nowrap " +
         (name === highlightName
           ? "border-amber-500 text-amber-700 bg-amber-50 font-semibold"
@@ -634,16 +633,19 @@ function PeopleChips({ people = [], highlightName = "" }) {
 
   return (
     <div className="space-y-1">
-      {/* 上段：必ず 4 枚を 4 等分で横並び（改行なし） */}
-      <div className="grid grid-cols-4 gap-1">
+      {/* 上段：4名を必ず横一列（各25%幅） */}
+      <div className="flex gap-1">
         {firstRow.map((p, i) => (
-          <div key={`top-${i}`} className="min-w-0">
+          <div
+            key={`top-${i}`}
+            className="basis-1/4 shrink-0 grow-0 min-w-0 flex justify-center"
+          >
             <Chip name={p} />
           </div>
         ))}
       </div>
 
-      {/* 5人目以降：普通に折り返し */}
+      {/* 5人目以降：普通に折り返して全員表示 */}
       {rest.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {rest.map((p, i) => (
