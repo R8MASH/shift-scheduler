@@ -613,27 +613,44 @@ function CountBadge({ current, required }) {
 }
 
 function PeopleChips({ people = [], highlightName = "" }) {
+  const firstRow = people.slice(0, 4);
+  const rest = people.slice(4);
+
+  const Chip = ({ name }) => (
+    <span
+      className={
+        "inline-flex items-center px-2 py-0.5 rounded-full border text-xs whitespace-nowrap shrink-0 " +
+        (name === highlightName
+          ? "border-amber-500 text-amber-700 bg-amber-50 font-semibold"
+          : "border-gray-300 text-gray-700 bg-white")
+      }
+      title={name}
+    >
+      {name}
+    </span>
+  );
+
   return (
-    // 横幅に入るだけ並べ、はみ出したら自動改行
-    <div className="flex flex-wrap gap-1 items-start">
-      {people.map((p, i) => (
-        <span
-          key={i}
-          className={
-            // pill は幅固定にせず、テキストは折り返さない（縦書き防止）
-            "inline-flex items-center px-2 py-0.5 rounded-full border text-xs whitespace-nowrap " +
-            (p === highlightName
-              ? "border-amber-500 text-amber-700 bg-amber-50 font-semibold"
-              : "border-gray-300 text-gray-700 bg-white")
-          }
-          title={p}
-        >
-          {p}
-        </span>
-      ))}
+    <div className="space-y-1">
+      {/* 1〜4人目：折り返し禁止・必要なら横スクロール */}
+      <div className="flex gap-1 flex-nowrap overflow-x-auto">
+        {firstRow.map((p, i) => (
+          <Chip key={`top-${i}`} name={p} />
+        ))}
+      </div>
+
+      {/* 5人目以降：普通に折り返して全員表示 */}
+      {rest.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {rest.map((p, i) => (
+            <Chip key={`rest-${i}`} name={p} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
 
 function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, viewMode='calendar', onlyLack=false, year, month, half, highlightName='' }) {
   const fmtScore = (assn)=>{
