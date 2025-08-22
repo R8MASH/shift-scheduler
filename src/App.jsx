@@ -373,17 +373,47 @@ function PeriodControls({ year, month, half, setYear, setMonth, setHalf }) {
 }
 
 function CalendarHalf({ year, month, half, cfg, onChange }) {
+  const [bulkDayVal, setBulkDayVal] = useState(1);
+  const [bulkNightVal, setBulkNightVal] = useState(1);
+
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
   const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+
   const firstDow = new Date(year, month - 1, 1).getDay();
   let day = 1;
   const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
 
   const update = (iso, patch) => {
-    const next = { reqDay: { ...(cfg.reqDay||{}) }, reqNight: { ...(cfg.reqNight||{}) } };
+    const next = {
+      modes: { ...(cfg.modes || {}) },
+      reqDay: { ...(cfg.reqDay || {}) },
+      reqNight: { ...(cfg.reqNight || {}) },
+    };
     if (Object.prototype.hasOwnProperty.call(patch, 'reqDay')) next.reqDay[iso] = patch.reqDay;
     if (Object.prototype.hasOwnProperty.call(patch, 'reqNight')) next.reqNight[iso] = patch.reqNight;
+    onChange(next);
+  };
+
+  const applyScope = (which, scope, value) => {
+    const next = {
+      modes: { ...(cfg.modes || {}) },
+      reqDay: { ...(cfg.reqDay || {}) },
+      reqNight: { ...(cfg.reqNight || {}) },
+    };
+    for (let d = start; d <= end; d++) {
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const date = new Date(year, month-1, d);
+      const dow = date.getDay();
+      const isHol = !!JapaneseHolidays.isHoliday(date);
+      let ok = false;
+      if (scope === 'all') ok = true;
+      else if (scope === 'weekday') ok = dow>=1 && dow<=5 && !isHol;
+      else if (scope === 'sat') ok = dow===6 && !isHol;
+      else if (scope === 'sunhol') ok = dow===0 || isHol;
+      if (!ok) continue;
+      if (which === 'day') next.reqDay[iso] = value; else next.reqNight[iso] = value;
+    }
     onChange(next);
   };
 
@@ -398,7 +428,10 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   const cells = [];
   for (let i = 0; i < totalCells; i++) {
     const empty = i < firstDow || day > dmax;
-    if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight: '120px'}}/>); continue; }
+    if (empty) {
+      cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight: '128px'}}/>);
+      continue;
+    }
     const d = day++;
     const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const inRange = d >= start && d <= end;
@@ -406,19 +439,23 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
     const reqNight = cfg.reqNight[iso] ?? 1;
 
     cells.push(
-      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
+      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'128px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-medium">{d}</div>
           <div className="text-xs text-gray-500">({['日','月','火','水','木','金','土'][new Date(year, month-1, d).getDay()]})</div>
         </div>
-        <div className="space-y-1">
+        <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-600">昼 必要</span>
-            <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqDay} onChange={(e) => update(iso, { reqDay: parseInt(e.target.value || '0') })} />
+            <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+            <button type="button" disabled={!inRange} onClick={() => update(iso, { reqDay: Math.max(0, (reqDay||0)-1) })} className="px-2 py-1 text-xs rounded border">−</button>
+            <input type="number" min={0} disabled={!inRange} className="w-20 border rounded px-2 py-1" value={reqDay} onChange={(e) => update(iso, { reqDay: parseInt(e.target.value || '0') })} />
+            <button type="button" disabled={!inRange} onClick={() => update(iso, { reqDay: (reqDay||0)+1 })} className="px-2 py-1 text-xs rounded border">＋</button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-600">夜 必要</span>
-            <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqNight} onChange={(e) => update(iso, { reqNight: parseInt(e.target.value || '0') })} />
+            <span className="text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+            <button type="button" disabled={!inRange} onClick={() => update(iso, { reqNight: Math.max(0, (reqNight||0)-1) })} className="px-2 py-1 text-xs rounded border">−</button>
+            <input type="number" min={0} disabled={!inRange} className="w-20 border rounded px-2 py-1" value={reqNight} onChange={(e) => update(iso, { reqNight: parseInt(e.target.value || '0') })} />
+            <button type="button" disabled={!inRange} onClick={() => update(iso, { reqNight: (reqNight||0)+1 })} className="px-2 py-1 text-xs rounded border">＋</button>
           </div>
         </div>
       </div>
@@ -426,7 +463,25 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">昼 一括</span>
+          <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={bulkDayVal} onChange={(e)=> setBulkDayVal(Math.max(0, parseInt(e.target.value || '0')))} />
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('day','all',bulkDayVal)}>全日</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('day','weekday',bulkDayVal)}>平日</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('day','sat',bulkDayVal)}>土曜</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('day','sunhol',bulkDayVal)}>日祝</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm">夜 一括</span>
+          <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={bulkNightVal} onChange={(e)=> setBulkNightVal(Math.max(0, parseInt(e.target.value || '0')))} />
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('night','all',bulkNightVal)}>全日</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('night','weekday',bulkNightVal)}>平日</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('night','sat',bulkNightVal)}>土曜</button>
+          <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> applyScope('night','sunhol',bulkNightVal)}>日祝</button>
+        </div>
+      </div>
       {head}
       <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap: '8px'}}>
         {cells}
@@ -435,7 +490,7 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   );
 }
 
-function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
+function TabbedMemberEditor({ year, month, half, cfg, members, setMembers })({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
