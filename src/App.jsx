@@ -1,17 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import JapaneseHolidays from "japanese-holidays";
 
-/**
- * Shift Scheduler Web App (React)
- * - 前半(1-15) / 後半(16-末) 切替
- * - 昼夜で必要人数を同時に指定・保存
- * - 祝日/土日色分け
- * - メンバー希望（昼夜それぞれ可/優先）
- * - 候補生成（昼/夜 同時表示）& 不足ハイライト
- * - 連勤制限（デフォルト3、個別設定可）
- * - ローカル保存/復元
- */
-
 function computeSatisfaction(member, assigned) {
   if (member.desired_days <= 0) {
     return member.preferred_slots.size === 0
@@ -172,13 +161,11 @@ export default function ShiftSchedulerApp() {
   const [year, setYear] = useState(persisted?.year ?? today.getFullYear());
   const [month, setMonth] = useState(persisted?.month ?? (today.getMonth() + 1));
   const [half, setHalf] = useState(persisted?.half ?? 'H1');
-  const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {}); // { [key]: { reqDay:{iso:n}, reqNight:{iso:n} } }
-  const [members, setMembers] = useState(persisted?.members ?? [
- 
-  ]);
+  const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
+  const [members, setMembers] = useState(persisted?.members ?? []);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
-  const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list');
+  const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'calendar');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
 
@@ -281,59 +268,58 @@ export default function ShiftSchedulerApp() {
         </Panel>
 
         <Panel title="候補スケジュール（昼夜まとめて表示／不足は赤）">
-  <div className="flex items-center gap-2 mb-3">
-    <span className="text-sm text-gray-600">表示</span>
-    <button
-      type="button"
-      className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
-      onClick={()=>setViewMode('list')}
-    >リスト</button>
-    <button
-      type="button"
-      className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
-      onClick={()=>setViewMode('calendar')}
-    >カレンダー</button>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm text-gray-600">表示</span>
+            <button
+              type="button"
+              className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
+              onClick={()=>setViewMode('list')}
+            >リスト</button>
+            <button
+              type="button"
+              className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
+              onClick={()=>setViewMode('calendar')}
+            >カレンダー</button>
 
-    <label className="ml-4 flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
-    </label>
+            <label className="ml-4 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
+            </label>
 
-    <span className="ml-4 text-sm text-gray-600">　ハイライト</span>
-    <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
-      <option value="">なし</option>
-      {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
-    </select>
+            <span className="ml-4 text-sm text-gray-600">　ハイライト</span>
+            <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
+              <option value="">なし</option>
+              {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
+            </select>
 
-    <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
-      <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
-      <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
-    </div>
-  </div>
+            <div className="ml-auto text-xs text-gray-500 flex items-center gap-3">
+              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#DCFCE7'}} />充足</span>
+              <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
+            </div>
+          </div>
 
-  {(candidatesDay.length === 0 && candidatesNight.length === 0) ? (
-    <div className="text-gray-500">候補がありません。必要人数やしきい値、可用日を調整してください。</div>
-  ) : (
-    <div className="grid gap-4">
-      {Array.from({length: Math.max(candidatesDay.length, candidatesNight.length)}, (_,i)=>i).map(i => (
-        <CombinedCandidateCard
-          key={`c${i}`}
-          idx={i}
-          dayAssn={candidatesDay[i]}
-          nightAssn={candidatesNight[i]}
-          slotsDay={slotsDay}
-          slotsNight={slotsNight}
-          viewMode={viewMode}
-          onlyLack={onlyLack}
-          year={year}
-          month={month}
-          half={half}
-          highlightName={highlightName}
-        />
-      ))}
-    </div>
-  )}
-</Panel>
-
+          {(candidatesDay.length === 0 && candidatesNight.length === 0) ? (
+            <div className="text-gray-500">候補がありません。必要人数やしきい値、可用日を調整してください。</div>
+          ) : (
+            <div className="grid gap-4">
+              {Array.from({length: Math.max(candidatesDay.length, candidatesNight.length)}, (_,i)=>i).map(i => (
+                <CombinedCandidateCard
+                  key={`c${i}`}
+                  idx={i}
+                  dayAssn={candidatesDay[i]}
+                  nightAssn={candidatesNight[i]}
+                  slotsDay={slotsDay}
+                  slotsNight={slotsNight}
+                  viewMode={viewMode}
+                  onlyLack={onlyLack}
+                  year={year}
+                  month={month}
+                  half={half}
+                  highlightName={highlightName}
+                />
+              ))}
+            </div>
+          )}
+        </Panel>
 
         <footer className="text-xs text-gray-500 text-center">© Shift Scheduler</footer>
       </div>
@@ -619,15 +605,33 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   );
 }
 
+function CountBadge({ current, required }) {
+  const lack = current < required;
+  return (
+    <span className={`absolute top-1 right-1 text-[11px] leading-none px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{current}/{required}</span>
+  );
+}
+
+function PeopleChips({ people = [], highlightName = "" }) {
+  const maxShow = 4; const shown = people.slice(0, maxShow); const extra = Math.max(0, people.length - shown.length);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shown.map((p, i) => (
+        <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs ${p===highlightName ? 'border-amber-500 text-amber-700 bg-amber-50 font-semibold' : 'border-gray-300 text-gray-700 bg-white'}`} title={p}>{p}</span>
+      ))}
+      {extra > 0 && (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[11px]">+{extra}</span>
+      )}
+    </div>
+  );
+}
+
 function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, viewMode='calendar', onlyLack=false, year, month, half, highlightName='' }) {
-  const scoreText = () => {
-    const fmt = (assn)=>{
-      if(!assn) return '—';
-      const minSat = Math.min(...Object.values(assn.satisfaction));
-      const avgSat = Object.values(assn.satisfaction).reduce((a,b)=>a+b,0)/Object.values(assn.satisfaction).length;
-      return `S ${assn.score.toFixed(3)} / 最低 ${Math.round(minSat*100)}% / 平均 ${Math.round(avgSat*100)}%`;
-    };
-    return `昼: ${fmt(dayAssn)}  |  夜: ${fmt(nightAssn)}`;
+  const fmtScore = (assn)=>{
+    if(!assn) return '—';
+    const minSat = Math.min(...Object.values(assn.satisfaction));
+    const avgSat = Object.values(assn.satisfaction).reduce((a,b)=>a+b,0)/Object.values(assn.satisfaction).length;
+    return `S ${assn.score.toFixed(3)} / 最低 ${Math.round(minSat*100)}% / 平均 ${Math.round(avgSat*100)}%`;
   };
 
   const weekdayHead = (
@@ -672,26 +676,26 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
       if (onlyLack && !(lackDay || lackNight)) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
 
       cells.push(
-        <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
+        <div key={iso} className={`relative border rounded p-2 ${inRange ? '' : 'opacity-40'} ${(lackDay||lackNight) ? 'ring-2 ring-red-400' : ''}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium">{d}</div>
             <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
           </div>
+
           <div className="space-y-1 text-xs">
-            <div className={`flex items-start gap-2 ${lackDay?'bg-red-50':'bg-green-50'} rounded px-2 py-1`}>
-              <span className="px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
-              <div className={`flex-1 ${highlightName && peopleDay.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
-                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2 ${lackDay?'bg-red-600':'bg-green-600'}`}>{peopleDay.length}/{reqDay}</span>
-                {peopleDay.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
-                {peopleDay.length>4 && <span className="text-gray-500">+{peopleDay.length-4}</span>}
+            <div className={`relative rounded px-2 py-1 ${lackDay?'bg-red-50':'bg-green-50'}`}>
+              <span className="inline-block mr-2 text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+              <CountBadge current={peopleDay.length} required={reqDay} />
+              <div className={`mt-1 ${highlightName && peopleDay.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
+                <PeopleChips people={peopleDay} highlightName={highlightName} />
               </div>
             </div>
-            <div className={`flex items-start gap-2 ${lackNight?'bg-red-50':'bg-green-50'} rounded px-2 py-1`}>
-              <span className="px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
-              <div className={`flex-1 ${highlightName && peopleNight.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
-                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2 ${lackNight?'bg-red-600':'bg-green-600'}`}>{peopleNight.length}/{reqNight}</span>
-                {peopleNight.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
-                {peopleNight.length>4 && <span className="text-gray-500">+{peopleNight.length-4}</span>}
+
+            <div className={`relative rounded px-2 py-1 ${lackNight?'bg-red-50':'bg-green-50'}`}>
+              <span className="inline-block mr-2 text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+              <CountBadge current={peopleNight.length} required={reqNight} />
+              <div className={`mt-1 ${highlightName && peopleNight.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
+                <PeopleChips people={peopleNight} highlightName={highlightName} />
               </div>
             </div>
           </div>
@@ -727,25 +731,14 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
           const required = slot?.required ?? 0;
           const lack = people.length < required;
           return (
-            <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
+            <div key={sid} className={`flex items-center justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
               <div>
                 {slot?.label || sid}
                 {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
               </div>
-              <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
-                {(() => {
-                  const maxShow = 4;
-                  const shown = people.slice(0, maxShow);
-                  const extra = people.length - shown.length;
-                  return (
-                    <span>
-                      {shown.length>0 ? shown.map((p,i)=>(
-                        <span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>
-                      )) : '-'}
-                      {extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
-                    </span>
-                  );
-                })()}
+              <div className="flex items-center gap-2">
+                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{people.length}/{required}</span>
+                <PeopleChips people={people} highlightName={highlightName} />
               </div>
             </div>
           );
@@ -755,9 +748,9 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between">
         <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
-        <div className="text-xs text-gray-600">{scoreText()}</div>
+        <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
       </div>
       <div className="mt-3">
         <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
@@ -766,7 +759,6 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     </div>
   );
 }
-
 
 function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, mode='昼', highlightName='' }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
@@ -815,10 +807,9 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
         .map(([sid, people]) => { const slot = slots.find((s) => s.id === sid); const required = slot?.required ?? 0; const lack = people.length < required; return (
           <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
             <div>{slot?.label || sid}{lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}</div>
-            <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
-              {(() => { const maxShow = 4; const shown = people.slice(0, maxShow); const extra = people.length - shown.length; return (
-                <span>{shown.length>0 ? shown.map((p,i)=>(<span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>)) : '-'}{extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}</span>
-              ); })()}
+            <div className="flex items-center gap-2">
+              <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{people.length}/{required}</span>
+              <PeopleChips people={people} highlightName={highlightName} />
             </div>
           </div>
         ); })}
@@ -829,23 +820,11 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center gap-3 justify-between">
         <div className="font-semibold">候補 {idx + 1}（{mode}）</div>
-        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
+        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)}</div>
       </div>
       <div className="mt-3">
         <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
         {viewMode==='calendar' ? <CalendarView /> : <ListView />}
-      </div>
-      <div className="mt-4">
-        <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
-        <div className="space-y-2">
-          {Object.entries(assn.satisfaction).map(([name, s]) => (
-            <div key={name} className="flex items-center gap-2">
-              <div className="w-24 text-sm">{name}</div>
-              <Progress value={s} />
-              <div className="w-12 text-right text-sm">{Math.round(s * 100)}%</div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
