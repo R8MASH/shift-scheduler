@@ -619,7 +619,9 @@ function PeopleChips({ people = [], highlightName = "" }) {
   const Chip = ({ name }) => (
     <span
       className={
-        "inline-flex items-center px-2 py-0.5 rounded-full border text-xs whitespace-nowrap shrink-0 " +
+        // 文字が潰れないように小さめフォント＆詰め気味の余白、改行禁止
+        "inline-flex justify-center items-center px-1.5 py-0.5 rounded-full border " +
+        "text-[11px] leading-[1.05] whitespace-nowrap " +
         (name === highlightName
           ? "border-amber-500 text-amber-700 bg-amber-50 font-semibold"
           : "border-gray-300 text-gray-700 bg-white")
@@ -632,14 +634,16 @@ function PeopleChips({ people = [], highlightName = "" }) {
 
   return (
     <div className="space-y-1">
-      {/* 1〜4人目：折り返し禁止・必要なら横スクロール */}
-      <div className="flex gap-1 flex-nowrap overflow-x-auto">
+      {/* 上段：必ず 4 枚を 4 等分で横並び（改行なし） */}
+      <div className="grid grid-cols-4 gap-1">
         {firstRow.map((p, i) => (
-          <Chip key={`top-${i}`} name={p} />
+          <div key={`top-${i}`} className="min-w-0">
+            <Chip name={p} />
+          </div>
         ))}
       </div>
 
-      {/* 5人目以降：普通に折り返して全員表示 */}
+      {/* 5人目以降：普通に折り返し */}
       {rest.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {rest.map((p, i) => (
@@ -650,6 +654,7 @@ function PeopleChips({ people = [], highlightName = "" }) {
     </div>
   );
 }
+
 
 
 function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, viewMode='calendar', onlyLack=false, year, month, half, highlightName='' }) {
