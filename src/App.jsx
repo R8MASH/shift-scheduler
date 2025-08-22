@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import JapaneseHolidays from "japanese-holidays";
 
-// ===============================
-// Shift Scheduler Web App (React)
-// ===============================
+/**
+ * Shift Scheduler Web App (React)
+ * - 前半(1-15) / 後半(16-末) 切替
+ * - 昼夜で必要人数を同時に指定・保存
+ * - 祝日/土日色分け
+ * - メンバー希望（昼夜それぞれ可/優先）
+ * - 候補生成（昼/夜 同時表示）& 不足ハイライト
+ * - 連勤制限（デフォルト3、個別設定可）
+ * - ローカル保存/復元
+ */
 
 function computeSatisfaction(member, assigned) {
   if (member.desired_days <= 0) {
@@ -22,7 +29,7 @@ function computeSatisfaction(member, assigned) {
   return coverRatio;
 }
 
-function greedySchedule(members, slots, seed = 0, balanceBias = 0.6, pairHint = null, pairWeight = 0.5) {
+function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
   const rng = mulberry32(seed);
   const bySlot = Object.fromEntries(slots.map((s) => [s.id, []]));
   const byMember = Object.fromEntries(members.map((m) => [m.name, []]));
@@ -36,13 +43,7 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6, pairHint = 
     const deficit = Math.max(0, member.desired_days - byMember[member.name].length);
     const fairness = balanceBias * (deficit / Math.max(1, member.desired_days));
     const loadPenalty = 0.05 * byMember[member.name].length;
-    let pairBonus = 0;
-    if (pairHint) {
-      const iso = slotId.split('_')[0];
-      const set = pairHint.get(member.name);
-      if (set && set.has(iso)) pairBonus = Math.max(0, Math.min(1, pairWeight));
-    }
-    return prefBonus + fairness - loadPenalty + pairBonus + rng();
+    return prefBonus + fairness - loadPenalty + rng();
   };
 
   for (const slot of order) {
@@ -115,61 +116,26 @@ function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7) {
   if (accepted.length > 0) {
     return accepted.sort((a, b) => b.score - a.score).slice(0, n);
   }
-
   if (bestSeen.length > 0) {
     return bestSeen.sort((a, b) => b.score - a.score).slice(0, n);
   }
-
   return [];
 }
-
 
 function setIntersect(a, b) { const out = new Set(); for (const x of a) if (b.has(x)) out.add(x); return out; }
 function shuffle(arr, rng) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
 function mulberry32(a) { return function() { let t=(a+=0x6d2b79f5); t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
 function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
 function periodKey(year, month, half) { return `${year}-${String(month).padStart(2,"0")}-${half}`; }
-function weekdayJ(iso) {
-  const [y,m,d] = iso.split('-').map(Number);
-  const w = new Date(y, m-1, d).getDay();
-  return ['日','月','火','水','木','金','土'][w];
-}
+function weekdayJ(iso) { const [y,m,d] = iso.split('-').map(Number); return ['日','月','火','水','木','金','土'][new Date(y, m-1, d).getDay()]; }
 
-function isoAddDays(iso, delta){
-  const [y,m,d] = iso.split('-').map(Number);
-  const dt = new Date(y, m-1, d + delta);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth()+1).padStart(2,'0');
-  const dd = String(dt.getDate()).padStart(2,'0');
-  return `${yy}-${mm}-${dd}`;
-}
-function wouldExceedConsecutive(existingSlotIds, candidateIso, max){
-  const isoSet = new Set((existingSlotIds||[]).map(sid => sid.split('_')[0]));
-  if (isoSet.has(candidateIso)) return false;
-  let left=0, right=0;
-  let cur = isoAddDays(candidateIso, -1);
-  while(isoSet.has(cur)){ left++; cur = isoAddDays(cur, -1); }
-  cur = isoAddDays(candidateIso, +1);
-  while(isoSet.has(cur)){ right++; cur = isoAddDays(cur, +1); }
-  const total = left + 1 + right;
-  return total > max;
-}
+function isoAddDays(iso, delta){ const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d + delta); const yy = dt.getFullYear(); const mm = String(dt.getMonth()+1).padStart(2,'0'); const dd = String(dt.getDate()).padStart(2,'0'); return `${yy}-${mm}-${dd}`; }
+function wouldExceedConsecutive(existingSlotIds, candidateIso, max){ const isoSet = new Set((existingSlotIds||[]).map(sid => sid.split('_')[0])); if (isoSet.has(candidateIso)) return false; let left=0, right=0; let cur = isoAddDays(candidateIso, -1); while(isoSet.has(cur)){ left++; cur = isoAddDays(cur, -1); } cur = isoAddDays(candidateIso, +1); while(isoSet.has(cur)){ right++; cur = isoAddDays(cur, +1); } const total = left + 1 + right; return total > max; }
 
-function isHolidayISO(iso) {
-  const [y,m,d] = iso.split('-').map(Number);
-  const date = new Date(y, m-1, d);
-  return !!JapaneseHolidays.isHoliday(date);
-}
-function weekendHolidayBg(iso, periodMode) {
-  const [y,m,d] = iso.split('-').map(Number);
-  const date = new Date(y, m-1, d);
-  const dow = date.getDay();
-  if (JapaneseHolidays.isHoliday(date) || dow === 0) return '#FFE4E6';
-  if (dow === 6) return '#DBEAFE';
-  return periodMode === '昼' ? '#FFFBEB' : '#EEF2FF';
-}
+function isHolidayISO(iso) { const [y,m,d] = iso.split('-').map(Number); return !!JapaneseHolidays.isHoliday(new Date(y, m-1, d)); }
+function weekendHolidayBg(iso) { const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d); const dow = dt.getDay(); if (JapaneseHolidays.isHoliday(dt) || dow === 0) return '#FFE4E6'; if (dow === 6) return '#DBEAFE'; return '#F9FAFB'; }
 
-const LS_KEY = 'shift-scheduler-demo/state/v5';
+const LS_KEY = 'shift-scheduler-demo/state/v6';
 function saveState(state) {
   try {
     const plain = {
@@ -196,7 +162,6 @@ function loadState() {
       desired_days_day: m.desired_days_day ?? m.desired_days ?? 2,
       desired_days_night: m.desired_days_night ?? m.desired_days ?? 2,
     }));
-    s.pairStrength = s.pairStrength ?? 0.5;
     return s;
   } catch { return null; }
 }
@@ -207,30 +172,28 @@ export default function ShiftSchedulerApp() {
   const [year, setYear] = useState(persisted?.year ?? today.getFullYear());
   const [month, setMonth] = useState(persisted?.month ?? (today.getMonth() + 1));
   const [half, setHalf] = useState(persisted?.half ?? 'H1');
-  const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {});
+  const [periodConfigs, setPeriodConfigs] = useState(persisted?.periodConfigs ?? {}); // { [key]: { reqDay:{iso:n}, reqNight:{iso:n} } }
   const [members, setMembers] = useState(persisted?.members ?? [
-    { name: "栄嶋", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "せりな", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "ここあ", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "安井", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "松原", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "高村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "田村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "坂ノ下", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "吉村", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
-    { name: "小原", availability: new Set(), desired_days: 2, desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "栄嶋", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "せりな", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "ここあ", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "安井", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "松原", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "高村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "田村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "坂ノ下", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "吉村", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
+    { name: "小原", availability: new Set(), desired_days_day: 2, desired_days_night: 2, preferred_slots: new Set(), max_consecutive: 3 },
   ]);
   const [minSat, setMinSat] = useState(persisted?.minSat ?? 0.7);
   const [numCandidates, setNumCandidates] = useState(persisted?.numCandidates ?? 3);
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'list');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
-  const [adopted, setAdopted] = useState(persisted?.adopted ?? {});
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
-  const [pairStrength, setPairStrength] = useState(persisted?.pairStrength ?? 0.5);
 
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName, pairStrength });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, adopted, highlightName, pairStrength]);
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName });
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName]);
 
   useEffect(() => {
     const key = periodKey(year, month, half);
@@ -238,175 +201,86 @@ export default function ShiftSchedulerApp() {
       const dmax = daysInMonth(year, month);
       const start = half === 'H1' ? 1 : 16;
       const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-      const defaultsModes = {};
-      const defaultsReqDay = {};
-      const defaultsReqNight = {};
+      const defaultsReqDay = {}; const defaultsReqNight = {};
       for (let d = start; d <= end; d++) {
         const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        defaultsModes[iso] = '昼';
-        defaultsReqDay[iso] = 1;
-        defaultsReqNight[iso] = 1;
+        defaultsReqDay[iso] = 1; defaultsReqNight[iso] = 1;
       }
-      const cur = prev[key] || { modes: {}, reqs: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
-      const mergedDay = { ...defaultsReqDay, ...(cur.reqDay || {}), ...(cur.reqs || {}) };
-      const mergedNight = { ...defaultsReqNight, ...(cur.reqNight || {}), ...(cur.reqs || {}) };
-      const modes = { ...defaultsModes, ...(cur.modes || {}) };
-      return { ...prev, [key]: { modes, reqDay: mergedDay, reqNight: mergedNight, periodMode: cur.periodMode || '昼' } };
+      const cur = prev[key] || { reqDay:{}, reqNight:{} };
+      return { ...prev, [key]: { reqDay: { ...defaultsReqDay, ...(cur.reqDay||{}) }, reqNight: { ...defaultsReqNight, ...(cur.reqNight||{}) } } };
     });
   }, [year, month, half]);
 
   const cfgRaw = periodConfigs[periodKey(year, month, half)] || {};
-  const cfg = {
-    modes: {},
-    reqDay: {},
-    reqNight: {},
-    ...cfgRaw,
-    periodMode: cfgRaw.periodMode || '昼',
-    reqDay: { ...(cfgRaw.reqs || {}), ...(cfgRaw.reqDay || {}) },
-    reqNight: { ...(cfgRaw.reqs || {}), ...(cfgRaw.reqNight || {}) },
-  };
+  const cfg = { reqDay: { ...(cfgRaw.reqDay||{}) }, reqNight: { ...(cfgRaw.reqNight||{}) } };
 
-  const slots = useMemo(() => {
-    const out = [];
-    const reqDay = cfg.reqDay || {};
-    const reqNight = cfg.reqNight || {};
-    const legacy = cfg.reqs || {};
+  const [pairStrength, setPairStrength] = useState(persisted?.pairStrength ?? 0.5);
 
-    let isoKeys = Object.keys(cfg.modes || {}).sort();
-    if (isoKeys.length === 0) {
-      const dmax = daysInMonth(year, month);
-      const start = half === 'H1' ? 1 : 16;
-      const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-      isoKeys = [];
-      for (let d = start; d <= end; d++) {
-        isoKeys.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-      }
-    }
-
-    for (const iso of isoKeys) {
-      const mode = (cfg.modes || {})[iso] || cfg.periodMode || '昼';
-      const id = `${iso}_${mode === '昼' ? 'DAY' : 'NIGHT'}`;
-      const label = `${iso} (${weekdayJ(iso)}) ${mode}`;
-      const required = mode === '昼' ? (reqDay[iso] ?? legacy[iso] ?? 1) : (reqNight[iso] ?? legacy[iso] ?? 1);
-      out.push({ id, label, required, iso, mode });
+  const slotsDay = useMemo(() => {
+    const out = []; const dmax = daysInMonth(year, month);
+    const start = half === 'H1' ? 1 : 16; const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    for (let d=start; d<=end; d++){
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      out.push({ id:`${iso}_DAY`, label:`${iso} (${weekdayJ(iso)}) 昼`, required: cfg.reqDay[iso] ?? 1, iso, mode:'昼' });
     }
     return out;
   }, [cfg, year, month, half]);
 
-  const [proposalTab, setProposalTab] = useState('昼');
-
-  const slotsProposal = useMemo(() => {
-    let isoKeys = Object.keys(cfg.modes || {}).sort();
-    if (isoKeys.length === 0) {
-      const dmax = daysInMonth(year, month);
-      const start = half === 'H1' ? 1 : 16;
-      const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-      isoKeys = [];
-      for (let d = start; d <= end; d++) isoKeys.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-    }
-    const out = [];
-    for (const iso of isoKeys) {
-      const required = proposalTab === '昼' ? (cfg.reqDay[iso] ?? 1) : (cfg.reqNight[iso] ?? 1);
-      const id = `${iso}_${proposalTab === '昼' ? 'DAY' : 'NIGHT'}`;
-      const label = `${iso} (${weekdayJ(iso)}) ${proposalTab}`;
-      out.push({ id, label, required, iso, mode: proposalTab });
+  const slotsNight = useMemo(() => {
+    const out = []; const dmax = daysInMonth(year, month);
+    const start = half === 'H1' ? 1 : 16; const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    for (let d=start; d<=end; d++){
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      out.push({ id:`${iso}_NIGHT`, label:`${iso} (${weekdayJ(iso)}) 夜`, required: cfg.reqNight[iso] ?? 1, iso, mode:'夜' });
     }
     return out;
-  }, [cfg, proposalTab, year, month, half]);
+  }, [cfg, year, month, half]);
 
-  const membersProposal = useMemo(() => (
-    members.map(m => {
-      const target = proposalTab === '昼' ? 'DAY' : 'NIGHT';
-      const avail = new Set(Array.from(m.availability || []).filter(sid => String(sid).endsWith(`_${target}`)));
-      const pref  = new Set(Array.from(m.preferred_slots || []).filter(sid => String(sid).endsWith(`_${target}`)));
-      const desired = proposalTab === '昼' ? (m.desired_days_day ?? m.desired_days ?? 0) : (m.desired_days_night ?? m.desired_days ?? 0);
-      return { ...m, availability: avail, preferred_slots: pref, desired_days: desired };
-    })
-  ), [members, proposalTab]);
+  const membersDay = useMemo(() => members.map(m => ({
+    ...m,
+    availability: new Set(Array.from(m.availability||[]).filter(id => id.endsWith('_DAY'))),
+    preferred_slots: new Set(Array.from(m.preferred_slots||[]).filter(id => id.endsWith('_DAY'))),
+    desired_days: m.desired_days_day ?? 0,
+  })), [members]);
 
-  const candidates = useMemo(
-    () => generateCandidates(membersProposal, slotsProposal, numCandidates, minSat, (() => {
-      const k = periodKey(year, month, half);
-      const opp = proposalTab === '昼' ? (adopted[k]?.night) : (adopted[k]?.day);
-      if (!opp || !opp.bySlot) return null;
-      const map = new Map();
-      for (const [sid, people] of Object.entries(opp.bySlot)) {
-        const iso = sid.split('_')[0];
-        for (const p of people) {
-          if (!map.has(p)) map.set(p, new Set());
-          map.get(p).add(iso);
-        }
-      }
-      return map;
-    })(), pairStrength),
-    [membersProposal, slotsProposal, numCandidates, minSat, adopted, proposalTab, year, month, half, pairStrength]
-  );
+  const membersNight = useMemo(() => members.map(m => ({
+    ...m,
+    availability: new Set(Array.from(m.availability||[]).filter(id => id.endsWith('_NIGHT'))),
+    preferred_slots: new Set(Array.from(m.preferred_slots||[]).filter(id => id.endsWith('_NIGHT'))),
+    desired_days: m.desired_days_night ?? 0,
+  })), [members]);
 
-  const bulkSetMode = (mode) => {
-    const key = periodKey(year, month, half);
-    const dmax = daysInMonth(year, month);
-    const start = half === 'H1' ? 1 : 16;
-    const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-    const isos = [];
-    for (let d = start; d <= end; d++) {
-      isos.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-    }
-    setPeriodConfigs((prev) => {
-      const now = prev[key] || { modes: {}, reqDay: {}, reqNight: {}, periodMode: '昼' };
-      const nextModes = Object.fromEntries(isos.map((iso) => [iso, mode]));
-      return { ...prev, [key]: { ...now, modes: nextModes, periodMode: mode } };
-    });
-  };
+  const candidatesDay = useMemo(() => generateCandidates(membersDay, slotsDay, numCandidates, minSat), [membersDay, slotsDay, numCandidates, minSat]);
+  const candidatesNight = useMemo(() => generateCandidates(membersNight, slotsNight, numCandidates, minSat), [membersNight, slotsNight, numCandidates, minSat]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto grid gap-6">
         <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">シフト自動編成（昼夜別の必要人数）</h1>
-          <div className="text-sm text-gray-500">1日1枠（昼/夜） / 前半・後半 / 保存＆復元</div>
+          <h1 className="text-2xl font-bold">シフト自動編成（昼夜同時）</h1>
+          <div className="text-sm text-gray-500">前半・後半 / 昼夜必要人数 / 自動保存</div>
         </header>
 
         <div className="grid md:grid-cols-3 gap-4">
-          <Panel title="期間（年月・前半/後半・昼夜一括）">
-            <div className="flex flex-col gap-3">
-              <PeriodControls
-                year={year}
-                month={month}
-                half={half}
-                setYear={setYear}
-                setMonth={setMonth}
-                setHalf={setHalf}
-              />
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">期間のモード（昼/夜）：</span>
-                <button type="button" className="px-3 py-1 text-sm rounded border bg-yellow-200" onClick={() => bulkSetMode('昼')}>昼</button>
-                <button type="button" className="px-3 py-1 text-sm rounded border bg-indigo-200" onClick={() => bulkSetMode('夜')}>夜</button>
-              </div>
-            </div>
+          <Panel title="期間（年月・前半/後半）">
+            <PeriodControls year={year} month={month} half={half} setYear={setYear} setMonth={setMonth} setHalf={setHalf} />
           </Panel>
 
-          <Panel title="日別設定（カレンダー：昼/夜の必要人数を別々に設定）">
-            <CalendarHalf
-              year={year}
-              month={month}
-              half={half}
-              cfg={cfg}
-              onChange={(next) => setPeriodConfigs((prev) => ({ ...prev, [periodKey(year, month, half)]: next }))}
-            />
+          <Panel title="日別設定（昼・夜 必要人数）">
+            <CalendarHalf year={year} month={month} half={half} cfg={cfg} onChange={(next)=> setPeriodConfigs(prev=> ({ ...prev, [periodKey(year, month, half)]: next }))} />
           </Panel>
 
           <Panel title="条件">
             <div className="space-y-4">
               <Labeled label={`最低充足率: ${(minSat * 100).toFixed(0)}%`}>
-                <input type="range" min={0} max={1} step={0.05} value={minSat} onChange={(e) => setMinSat(parseFloat(e.target.value))} className="w-full" />
+                <input type="range" min={0} max={1} step={0.05} value={minSat} onChange={(e)=> setMinSat(parseFloat(e.target.value))} className="w-full" />
               </Labeled>
               <Labeled label={`候補数: ${numCandidates}`}>
-                <input type="range" min={1} max={10} step={1} value={numCandidates} onChange={(e) => setNumCandidates(parseInt(e.target.value))} className="w-full" />
+                <input type="range" min={1} max={10} step={1} value={numCandidates} onChange={(e)=> setNumCandidates(parseInt(e.target.value))} className="w-full" />
               </Labeled>
-              <Labeled label={`同日集約の強さ: ${(pairStrength * 100).toFixed(0)}%`}>
-                <input type="range" min={0} max={1} step={0.05} value={pairStrength} onChange={(e) => setPairStrength(parseFloat(e.target.value))} className="w-full" />
+              <Labeled label={`同日集約の強さ: ${(pairStrength*100).toFixed(0)}%`}>
+                <input type="range" min={0} max={1} step={0.05} value={pairStrength} onChange={(e)=> setPairStrength(parseFloat(e.target.value))} className="w-full" />
               </Labeled>
-              <p className="text-xs text-gray-500">必要人数はモード別。モード切替しても数値は保持されます。</p>
             </div>
           </Panel>
         </div>
@@ -415,14 +289,11 @@ export default function ShiftSchedulerApp() {
           <TabbedMemberEditor year={year} month={month} half={half} cfg={cfg} members={members} setMembers={setMembers} />
         </Panel>
 
-        <Panel title="候補スケジュール（不足日は赤ハイライト）">
+        <Panel title="候補スケジュール（昼・夜 / 不足日は赤ハイライト）">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-sm text-gray-600">表示</span>
             <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('list')}>リスト</button>
             <button type="button" className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`} onClick={()=>setViewMode('calendar')}>カレンダー</button>
-            <span className="ml-4 text-sm text-gray-600">提案モード</span>
-            <button type="button" className={`px-2 py-1 text-sm rounded border ${proposalTab==='昼'?'bg-yellow-200':'bg-white'}`} onClick={()=>setProposalTab('昼')}>昼</button>
-            <button type="button" className={`px-2 py-1 text-sm rounded border ${proposalTab==='夜'?'bg-indigo-200':'bg-white'}`} onClick={()=>setProposalTab('夜')}>夜</button>
             <label className="ml-4 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
@@ -436,57 +307,31 @@ export default function ShiftSchedulerApp() {
               <span><span className="inline-block w-3 h-3 align-middle mr-1 rounded" style={{background:'#FEE2E2'}} />不足</span>
             </div>
           </div>
-          {candidates.length === 0 ? (
-            <div className="text-gray-500">条件を満たす案がありません。しきい値を下げるか、希望を広げてください。</div>
+
+          <h3 className="font-semibold mb-2">昼の候補</h3>
+          {candidatesDay.length === 0 ? (
+            <div className="text-gray-500 mb-4">昼の候補がありません。必要人数やしきい値を調整してください。</div>
+          ) : (
+            <div className="grid gap-4 mb-6">
+              {candidatesDay.map((c, idx) => (
+                <CandidateCard key={`d${idx}`} idx={idx} assn={c} slots={slotsDay} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} mode='昼' highlightName={highlightName} />
+              ))}
+            </div>
+          )}
+
+          <h3 className="font-semibold mb-2">夜の候補</h3>
+          {candidatesNight.length === 0 ? (
+            <div className="text-gray-500">夜の候補がありません。必要人数やしきい値を調整してください。</div>
           ) : (
             <div className="grid gap-4">
-              {candidates.map((c, idx) => (
-                <CandidateCard
-                  key={idx}
-                  idx={idx}
-                  assn={c}
-                  slots={slotsProposal}
-                  viewMode={viewMode}
-                  onlyLack={onlyLack}
-                  year={year}
-                  month={month}
-                  half={half}
-                  cfg={cfg}
-                  mode={proposalTab}
-                  adoptedByMode={(adopted[periodKey(year, month, half)] || {})}
-                  onToggleAdopt={(mode, nextChecked, assn) => {
-                    setAdopted(prev => {
-                      const k = periodKey(year, month, half);
-                      const cur = prev[k] || {};
-                      if (!nextChecked) {
-                        const next = { ...cur };
-                        if (mode === '昼') delete next.day; else delete next.night;
-                        return { ...prev, [k]: next };
-                      }
-                      const snap = { bySlot: assn.bySlot, satisfaction: assn.satisfaction, score: assn.score, __sig: assn.__sig };
-                      const next = mode === '昼' ? { ...cur, day: snap } : { ...cur, night: snap };
-                      return { ...prev, [k]: next };
-                    });
-                  }}
-                  highlightName={highlightName}
-                />
+              {candidatesNight.map((c, idx) => (
+                <CandidateCard key={`n${idx}`} idx={idx} assn={c} slots={slotsNight} viewMode={viewMode} onlyLack={onlyLack} year={year} month={month} half={half} mode='夜' highlightName={highlightName} />
               ))}
             </div>
           )}
         </Panel>
 
-        <Panel title="採用（昼・夜）統合カレンダー">
-          <AdoptedMergedCalendar
-            year={year}
-            month={month}
-            half={half}
-            cfg={cfg}
-            adoptedByMode={adopted[periodKey(year, month, half)] || {}}
-            highlightName={highlightName}
-          />
-        </Panel>
-
-        <footer className="text-xs text-gray-500 text-center">© Shift Scheduler demo – カレンダー表示 / タブ編集 / 不足ハイライト / 自動保存 / 昼夜別必要人数</footer>
+        <footer className="text-xs text-gray-500 text-center">© Shift Scheduler</footer>
       </div>
     </div>
   );
@@ -509,10 +354,8 @@ function Labeled({ label, children }) {
   );
 }
 function PeriodControls({ year, month, half, setYear, setMonth, setHalf }) {
-  const years = [];
-  const current = new Date().getFullYear();
+  const years = []; const current = new Date().getFullYear();
   for (let y = current - 2; y <= current + 2; y++) years.push(y);
-
   return (
     <div className="flex flex-wrap gap-2 items-center">
       <select className="border rounded px-2 py-1" value={year} onChange={(e) => setYear(parseInt(e.target.value))}>
@@ -533,20 +376,12 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   const dmax = daysInMonth(year, month);
   const start = half === 'H1' ? 1 : 16;
   const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-
   const firstDow = new Date(year, month - 1, 1).getDay();
   let day = 1;
   const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
 
   const update = (iso, patch) => {
-    const next = {
-      modes: { ...(cfg.modes || {}) },
-      reqDay: { ...(cfg.reqDay || {}) },
-      reqNight: { ...(cfg.reqNight || {}) },
-      periodMode: cfg.periodMode,
-    };
-
-    if (Object.prototype.hasOwnProperty.call(patch, 'mode')) next.modes[iso] = patch.mode;
+    const next = { reqDay: { ...(cfg.reqDay||{}) }, reqNight: { ...(cfg.reqNight||{}) } };
     if (Object.prototype.hasOwnProperty.call(patch, 'reqDay')) next.reqDay[iso] = patch.reqDay;
     if (Object.prototype.hasOwnProperty.call(patch, 'reqNight')) next.reqNight[iso] = patch.reqNight;
     onChange(next);
@@ -563,36 +398,28 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   const cells = [];
   for (let i = 0; i < totalCells; i++) {
     const empty = i < firstDow || day > dmax;
-    if (empty) {
-      cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight: '92px'}}/>);
-      continue;
-    }
+    if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight: '120px'}}/>); continue; }
     const d = day++;
     const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const inRange = d >= start && d <= end;
-    const mode = cfg.modes[iso] || '昼';
     const reqDay = cfg.reqDay[iso] ?? 1;
     const reqNight = cfg.reqNight[iso] ?? 1;
 
     cells.push(
-      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso, cfg.periodMode) : undefined}}>
+      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-medium">{d}</div>
           <div className="text-xs text-gray-500">({['日','月','火','水','木','金','土'][new Date(year, month-1, d).getDay()]})</div>
         </div>
-        <div className="mb-2 text-xs"><span className={`px-2 py-0.5 rounded border ${mode==='昼' ? 'bg-yellow-200' : 'bg-indigo-200'}`}>{mode}</span></div>
         <div className="space-y-1">
-          {cfg.periodMode === '昼' ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-600">昼 必要</span>
-              <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqDay} onChange={(e) => update(iso, { reqDay: parseInt(e.target.value || '0') })} />
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-600">夜 必要</span>
-              <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqNight} onChange={(e) => update(iso, { reqNight: parseInt(e.target.value || '0') })} />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-600">昼 必要</span>
+            <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqDay} onChange={(e) => update(iso, { reqDay: parseInt(e.target.value || '0') })} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-600">夜 必要</span>
+            <input type="number" min={0} disabled={!inRange} className="w-16 border rounded px-2 py-1" value={reqNight} onChange={(e) => update(iso, { reqNight: parseInt(e.target.value || '0') })} />
+          </div>
         </div>
       </div>
     );
@@ -612,7 +439,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
-  const add = () => setMembers((m) => [...m, { name: `Member${m.length + 1}`, availability: new Set(), desired_days: 1, preferred_slots: new Set(), max_consecutive: 3 }]);
+  const add = () => setMembers((m) => [...m, { name: `Member${m.length + 1}`, availability: new Set(), desired_days_day: 1, desired_days_night: 1, preferred_slots: new Set(), max_consecutive: 3 }]);
   const remove = (idx) => setMembers((arr) => arr.filter((_, i) => i !== idx));
   const updateMember = (idx, patch) => setMembers((arr) => arr.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
 
@@ -651,11 +478,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
         ids.push(`${iso}_${target}`);
       }
       const allOn = ids.every(id => avail.has(id));
-      if (allOn) {
-        ids.forEach(id => avail.delete(id));
-      } else {
-        ids.forEach(id => avail.add(id));
-      }
+      if (allOn) ids.forEach(id => avail.delete(id)); else ids.forEach(id => avail.add(id));
       copy[idx] = { ...copy[idx], availability: avail };
       return copy;
     });
@@ -671,12 +494,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
         {members.map((m, idx) => (
-          <button
-            key={idx}
-            type="button"
-            onClick={() => { if (active === idx) setCollapsed(!collapsed); else { setActive(idx); setCollapsed(false); }}}
-            className={`px-3 py-1 rounded border text-sm ${active === idx && !collapsed ? 'bg-blue-600 text-white' : 'bg-white'}`}
-          >{m.name}</button>
+          <button key={idx} type="button" onClick={() => { if (active === idx) setCollapsed(!collapsed); else { setActive(idx); setCollapsed(false); }}} className={`px-3 py-1 rounded border text-sm ${active === idx && !collapsed ? 'bg-blue-600 text-white' : 'bg-white'}`}>{m.name}</button>
         ))}
         <button type="button" className="px-3 py-1 rounded border text-sm" onClick={add}>+ 追加</button>
       </div>
@@ -686,9 +504,9 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
           <div className="flex gap-2 items-center">
             <input className="border rounded px-2 py-1" value={members[active].name} onChange={(e) => updateMember(active, { name: e.target.value })} />
             <label className="text-sm text-gray-600 ml-auto">希望日数（昼）</label>
-            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_day ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_day: parseInt(e.target.value || '0') })} />
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_day ?? 0} onChange={(e) => updateMember(active, { desired_days_day: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">希望日数（夜）</label>
-            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? members[active].desired_days ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
+            <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
             <button type="button" className="ml-4 px-2 py-1 text-xs rounded border bg-yellow-200" onClick={() => bulkToggleAll(active, 'DAY')}>昼 全選択/解除</button>
@@ -696,7 +514,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
           </div>
 
-          <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（昼・夜それぞれに「勤務可能」と「優先」を個別に設定できます）。</div>
+          <div className="text-xs text-gray-600">クリックで「勤務可能」を切り替え。チェックで「優先日」を指定できます（昼・夜それぞれ個別）。</div>
 
           <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
             {['日','月','火','水','木','金','土'].map((w) => (
@@ -711,38 +529,26 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
               const d = i - firstDow + 1;
               const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
               const inRange = d >= start && d <= end;
-              const dayId = `${iso}_DAY`;
-              const nightId = `${iso}_NIGHT`;
+              const dayId = `${iso}_DAY`; const nightId = `${iso}_NIGHT`;
               const isAvailDay = members[active].availability.has(dayId);
               const isAvailNight = members[active].availability.has(nightId);
               const isPrefDay = members[active].preferred_slots.has(dayId);
               const isPrefNight = members[active].preferred_slots.has(nightId);
-
               return (
-                <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso, cfg.periodMode) : undefined}}>
+                <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'120px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-medium">{d}</div>
                     <div className="text-xs text-gray-500">({['日','月','火','水','木','金','土'][new Date(year, month-1, d).getDay()]})</div>
                   </div>
-
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
-                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-sm border rounded px-3 py-1 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
-                      {isAvailDay ? '勤務可能' : '未選択'}
-                    </button>
-                    <label className="flex items-center gap-1 text-xs">
-                      <input type="checkbox" disabled={!inRange} checked={isPrefDay} onChange={(e)=> setPreferredSlot(active, dayId, e.target.checked)} /> 優先
-                    </label>
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, dayId)} className={`text-sm border rounded px-3 py-1 ${isAvailDay ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>{isAvailDay ? '勤務可能' : '未選択'}</button>
+                    <label className="flex items-center gap-1 text-xs"><input type="checkbox" disabled={!inRange} checked={isPrefDay} onChange={(e)=> setPreferredSlot(active, dayId, e.target.checked)} /> 優先</label>
                   </div>
-
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
-                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-sm border rounded px-3 py-1 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>
-                      {isAvailNight ? '勤務可能' : '未選択'}
-                    </button>
-                    <label className="flex items-center gap-1 text-xs">
-                      <input type="checkbox" disabled={!inRange} checked={isPrefNight} onChange={(e)=> setPreferredSlot(active, nightId, e.target.checked)} /> 優先
-                    </label>
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
+                    <button type="button" disabled={!inRange} onClick={() => toggleAvailSlot(active, nightId)} className={`text-sm border rounded px-3 py-1 ${isAvailNight ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}>{isAvailNight ? '勤務可能' : '未選択'}</button>
+                    <label className="flex items-center gap-1 text-xs"><input type="checkbox" disabled={!inRange} checked={isPrefNight} onChange={(e)=> setPreferredSlot(active, nightId, e.target.checked)} /> 優先</label>
                   </div>
                 </div>
               );
@@ -754,78 +560,39 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   );
 }
 
-function Chip({ active, onClick, children }) {
-  return (
-    <button type="button" onClick={onClick} className={"px-2 py-1 rounded-full border text-sm " + (active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300")}>
-      {children}
-    </button>
-  );
-}
-
-function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, cfg, mode='昼', adoptedByMode={}, onToggleAdopt, highlightName='' }) {
+function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, mode='昼', highlightName='' }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
   const avgSat = Object.values(assn.satisfaction).reduce((a, b) => a + b, 0) / Object.values(assn.satisfaction).length;
-
   const slotByIso = React.useMemo(() => Object.fromEntries(slots.map(s => [s.iso, s])), [slots]);
 
   const CalendarView = () => {
     const dmax = daysInMonth(year, month);
-    const start = half === 'H1' ? 1 : 16;
-    const end = half === 'H1' ? Math.min(15, dmax) : dmax;
+    const start = half === 'H1' ? 1 : 16; const end = half === 'H1' ? Math.min(15, dmax) : dmax;
     const firstDow = new Date(year, month - 1, 1).getDay();
-    const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
-
+    const totalCells = Math.ceil((firstDow + dmax) / 7) * 7; let day = 1;
     const cells = [];
-    let day = 1;
     for (let i = 0; i < totalCells; i++) {
-      const empty = i < firstDow || day > dmax;
-      if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'70px'}}/>); continue; }
-      const d = day++;
-      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const inRange = d >= start && d <= end;
-      const slot = slotByIso[iso];
-      if (!inRange) { cells.push(<div key={iso} className="border rounded p-2 opacity-40" style={{minHeight:'70px'}}><div className="text-sm font-medium">{d}</div></div>); continue; }
-      if (!slot) { cells.push(<div key={iso} className="border rounded p-2" style={{minHeight:'70px'}}><div className="text-sm font-medium">{d}</div></div>); continue; }
-
-      const people = assn.bySlot[slot.id] || [];
-      const required = slot.required || 0;
-      const lack = people.length < required;
-      if (onlyLack && !lack) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'70px'}}/>); continue; }
-
-      const selectedInCell = highlightName && people.includes(highlightName);
-      const bg = lack ? '#FEE2E2' : '#DCFCE7';
-      const maxShow = 4;
-      const shown = people.slice(0, maxShow);
-      const extra = people.length - shown.length;
+      const empty = i < firstDow || day > dmax; if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'86px'}}/>); continue; }
+      const d = day++; const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; const inRange = d >= start && d <= end;
+      const slot = slotByIso[iso]; if (!inRange || !slot) { cells.push(<div key={iso} className="border rounded p-2" style={{minHeight:'86px'}}><div className="text-sm font-medium">{d}</div></div>); continue; }
+      const people = assn.bySlot[slot.id] || []; const required = slot.required || 0; const lack = people.length < required; if (onlyLack && !lack) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'86px'}}/>); continue; }
+      const selectedInCell = highlightName && people.includes(highlightName); const bg = lack ? '#FEE2E2' : '#DCFCE7';
+      const maxShow = 4; const shown = people.slice(0, maxShow); const extra = people.length - shown.length;
       cells.push(
         <div key={iso} className={`relative border rounded p-2 ${selectedInCell ? 'ring-2 ring-amber-400' : ''}`} style={{minHeight:'86px', background:bg}}>
-          <div className={`absolute top-1 right-1 text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>
-            {people.length}/{required}
-          </div>
-          <div className="flex items-center justify-between mb-1 pr-12">
-            <div className="text-sm font-medium">{d}</div>
-            <div className="text-xs text-gray-700">{mode}</div>
-          </div>
+          <div className={`absolute top-1 right-1 text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{people.length}/{required}</div>
+          <div className="flex items-center justify-between mb-1 pr-12"><div className="text-sm font-medium">{d}</div><div className="text-xs text-gray-700">{mode}</div></div>
           <div className="text-xs leading-tight" title={people.join(', ')}>
-            {shown.length > 0 ? shown.map((p, i) => (
-              <div key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{p}</div>
-            )) : '-' }
-            {extra > 0 && <div className="text-[10px] text-gray-600">+{extra} 名</div>}
+            {shown.length>0 ? shown.map((p,i)=>(<div key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{p}</div>)) : '-'}
+            {extra>0 && <div className="text-[10px] text-gray-600">+{extra} 名</div>}
           </div>
         </div>
       );
     }
-
     return (
       <div>
-        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
-          {['日','月','火','水','木','金','土'].map((w) => (
-            <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
-          ))}
-        </div>
-        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
-          {cells}
-        </div>
+        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>{['日','月','火','水','木','金','土'].map((w) => (<div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>))}</div>
+        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>{cells}</div>
       </div>
     );
   };
@@ -835,62 +602,31 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
       {[...Object.entries(assn.bySlot)]
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .filter(([sid, people]) => {
-          if (!onlyLack) return true;
-          const slot = slots.find((s) => s.id === sid);
-          const required = slot?.required ?? 0;
-          return people.length < required;
+          if (!onlyLack) return true; const slot = slots.find((s) => s.id === sid); const required = slot?.required ?? 0; return people.length < required;
         })
-        .map(([sid, people]) => {
-          const slot = slots.find((s) => s.id === sid);
-          const required = slot?.required ?? 0;
-          const lack = people.length < required;
-          return (
-            <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
-              <div>
-                {slot?.label || sid}
-                {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
-              </div>
-              <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
-                {(() => {
-                  const maxShow = 4;
-                  const shown = people.slice(0, maxShow);
-                  const extra = people.length - shown.length;
-                  return (
-                    <span>
-                      {shown.length>0 ? shown.map((p,i)=>(
-                        <span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>
-                      )) : '-'}
-                      {extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}
-                    </span>
-                  );
-                })()}
-              </div>
+        .map(([sid, people]) => { const slot = slots.find((s) => s.id === sid); const required = slot?.required ?? 0; const lack = people.length < required; return (
+          <div key={sid} className={`flex justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
+            <div>{slot?.label || sid}{lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}</div>
+            <div className={`font-medium ${lack ? 'text-red-600' : 'text-gray-700'}`} title={people.join(', ')}>
+              {(() => { const maxShow = 4; const shown = people.slice(0, maxShow); const extra = people.length - shown.length; return (
+                <span>{shown.length>0 ? shown.map((p,i)=>(<span key={i} className={p===highlightName ? 'font-bold text-amber-700' : ''}>{i>0?'、':''}{p}</span>)) : '-'}{extra>0 && <span className="text-xs text-gray-500">、+{extra}</span>}</span>
+              ); })()}
             </div>
-          );
-        })}
+          </div>
+        ); })}
     </div>
   );
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center gap-3 justify-between">
-        <div className="font-semibold">候補 {idx + 1}</div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={mode==='昼' ? (adoptedByMode.day?.__sig === assn.__sig) : (adoptedByMode.night?.__sig === assn.__sig)}
-            onChange={(e)=> onToggleAdopt(mode, e.target.checked, assn)}
-          />
-          採用（{mode}）
-        </label>
+        <div className="font-semibold">候補 {idx + 1}（{mode}）</div>
         <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)} ・ 最低 {Math.round(minSat * 100)}% ・ 平均 {Math.round(avgSat * 100)}%</div>
       </div>
-
       <div className="mt-3">
         <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
         {viewMode==='calendar' ? <CalendarView /> : <ListView />}
       </div>
-
       <div className="mt-4">
         <div className="text-sm text-gray-600 mb-1">各メンバーの充足率</div>
         <div className="space-y-2">
@@ -903,83 +639,6 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function AdoptedMergedCalendar({ year, month, half, cfg, adoptedByMode, highlightName='' }) {
-  const dmax = daysInMonth(year, month);
-  const start = half === 'H1' ? 1 : 16;
-  const end = half === 'H1' ? Math.min(15, dmax) : dmax;
-  const firstDow = new Date(year, month - 1, 1).getDay();
-  const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
-  let day = 1;
-
-  const hasDay = !!adoptedByMode.day;
-  const hasNight = !!adoptedByMode.night;
-
-  const head = (
-    <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
-      {['日','月','火','水','木','金','土'].map((w) => (
-        <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
-      ))}
-    </div>
-  );
-
-  const cells = [];
-  for (let i=0;i<totalCells;i++){
-    const empty = i < firstDow || day > dmax;
-    if (empty){ cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
-    const d = day++;
-    const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const inRange = d >= start && d <= end;
-
-    const reqDay = cfg.reqDay[iso] ?? 0;
-    const reqNight = cfg.reqNight[iso] ?? 0;
-    const dayPeople = hasDay ? (adoptedByMode.day.bySlot[`${iso}_DAY`] || []) : [];
-    const dayHasSel = highlightName && dayPeople.includes(highlightName);
-    const nightPeople = hasNight ? (adoptedByMode.night.bySlot[`${iso}_NIGHT`] || []) : [];
-    const nightHasSel = highlightName && nightPeople.includes(highlightName);
-
-    cells.push(
-      <div key={iso} className={`border rounded p-2 ${inRange ? '' : 'opacity-40'}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso, '昼') : undefined}}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-sm font-medium">{d}</div>
-          <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
-        </div>
-        <div className="space-y-1 text-xs">
-          <div className="flex items-start gap-2">
-            <span className="px-2 py-0.5 rounded border bg-yellow-200">昼</span>
-            <div className={`flex-1 ${dayHasSel ? 'ring-2 ring-amber-400 rounded' : ''}`}>
-              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (dayPeople.length < reqDay) ? '#DC2626' : '#16A34A'}}>
-                {dayPeople.length}/{reqDay}
-              </div>
-              {dayPeople.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
-              {dayPeople.length>4 && <span className="text-gray-500">+{dayPeople.length-4}</span>}
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="px-2 py-0.5 rounded border bg-indigo-200">夜</span>
-            <div className={`flex-1 ${nightHasSel ? 'ring-2 ring-amber-400 rounded' : ''}`}>
-              <div className="inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white align-middle mr-2" style={{background: (nightPeople.length < reqNight) ? '#DC2626' : '#16A34A'}}>
-                {nightPeople.length}/{reqNight}
-              </div>
-              {nightPeople.slice(0,4).map((p,i)=>(<span key={i} className={`mr-1 ${p===highlightName ? 'font-bold text-amber-700' : ''}`}>{p}</span>))}
-              {nightPeople.length>4 && <span className="text-gray-500">+{nightPeople.length-4}</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {head}
-      <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
-        {cells}
-      </div>
-      {(!hasDay && !hasNight) && <div className="text-sm text-gray-500 mt-2">まだ「採用」を選んだ候補がありません。候補一覧で昼/夜のどちらかにチェックを入れてください。</div>}
     </div>
   );
 }
