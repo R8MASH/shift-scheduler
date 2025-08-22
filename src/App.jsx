@@ -608,7 +608,7 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
 function CountBadge({ current, required }) {
   const lack = current < required;
   return (
-    <span className={`absolute top-1 right-1 text-[11px] leading-none px-1.5 py-0.5 rounded-full text-gray-900 ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{current}/{required}</span>
+    <span className={`absolute top-1 right-1 text-[11px] leading-none px-1.5 py-0.5 rounded-full text-gray-400 ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{current}/{required}</span>
   );
 }
 
