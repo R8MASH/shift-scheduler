@@ -490,7 +490,7 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
   );
 }
 
-function TabbedMemberEditor({ year, month, half, cfg, members, setMembers })({ year, month, half, cfg, members, setMembers }) {
+function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
