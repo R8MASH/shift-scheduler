@@ -269,19 +269,7 @@ export default function ShiftSchedulerApp() {
 
         <Panel title="候補スケジュール（昼夜まとめて表示／不足は赤）">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-gray-600">表示</span>
-            <button
-              type="button"
-              className={`px-2 py-1 text-sm rounded border ${viewMode==='list'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
-              onClick={()=>setViewMode('list')}
-            >リスト</button>
-            <button
-              type="button"
-              className={`px-2 py-1 text-sm rounded border ${viewMode==='calendar'?'bg-blue-600 text-white border-blue-600':'bg-white'}`}
-              onClick={()=>setViewMode('calendar')}
-            >カレンダー</button>
-
-            <label className="ml-4 flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
             </label>
 
@@ -309,7 +297,6 @@ export default function ShiftSchedulerApp() {
                   nightAssn={candidatesNight[i]}
                   slotsDay={slotsDay}
                   slotsNight={slotsNight}
-                  viewMode={viewMode}
                   onlyLack={onlyLack}
                   year={year}
                   month={month}
@@ -320,6 +307,7 @@ export default function ShiftSchedulerApp() {
             </div>
           )}
         </Panel>
+
 
         <footer className="text-xs text-gray-500 text-center">© Shift Scheduler</footer>
       </div>
@@ -659,7 +647,7 @@ function PeopleChips({ people = [], highlightName = "" }) {
 
 
 
-function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, viewMode='calendar', onlyLack=false, year, month, half, highlightName='' }) {
+function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, onlyLack=false, year, month, half, highlightName='' }) {
   const fmtScore = (assn)=>{
     if(!assn) return '—';
     const minSat = Math.min(...Object.values(assn.satisfaction));
@@ -745,39 +733,35 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     );
   };
 
-  const ListMerged = () => (
-    <div className="space-y-2 text-sm">
-      {[...new Set([...(slotsDay||[]).map(s=>s.id), ...(slotsNight||[]).map(s=>s.id)])]
-        .sort((a,b)=> a<b?-1:1)
-        .filter((sid)=>{
-          if(!onlyLack) return true;
-          const slot = (slotsDay||[]).concat(slotsNight||[]).find(s=>s.id===sid);
-          const assn = sid.endsWith('_DAY') ? dayAssn : nightAssn;
-          const people = assn ? (assn.bySlot[sid] || []) : [];
-          const required = slot?.required ?? 0;
-          return people.length < required;
-        })
-        .map((sid)=>{
-          const slot = (slotsDay||[]).concat(slotsNight||[]).find(s=>s.id===sid);
-          const assn = sid.endsWith('_DAY') ? dayAssn : nightAssn;
-          const people = assn ? (assn.bySlot[sid] || []) : [];
-          const required = slot?.required ?? 0;
-          const lack = people.length < required;
+  const SatisfactionList = () => {
+    const names = Array.from(new Set([
+      ...(dayAssn ? Object.keys(dayAssn.satisfaction) : []),
+      ...(nightAssn ? Object.keys(nightAssn.satisfaction) : []),
+    ])).sort((a,b)=> a.localeCompare(b, 'ja'));
+
+    return (
+      <div className="space-y-2">
+        {names.map((n) => {
+          const sd = dayAssn ? dayAssn.satisfaction[n] : undefined;
+          const sn = nightAssn ? nightAssn.satisfaction[n] : undefined;
           return (
-            <div key={sid} className={`flex items-center justify-between border rounded px-2 py-1 ${lack ? 'bg-red-50 border-red-300' : ''}`}>
-              <div>
-                {slot?.label || sid}
-                {lack && <span className="ml-2 text-red-600">不足: {required - people.length}人</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full text-white ${lack ? 'bg-red-600' : 'bg-green-600'}`}>{people.length}/{required}</span>
-                <PeopleChips people={people} highlightName={highlightName} />
+            <div key={n} className="flex items-center gap-2">
+              <div className="w-24 text-sm">{n}</div>
+              <div className="flex-1 flex items-center gap-2">
+                <span className="w-7 text-[11px] text-gray-600">昼</span>
+                <Progress value={sd ?? 0} />
+                <span className="w-10 text-right text-xs">{sd!=null ? Math.round(sd*100) : '-'}%</span>
+
+                <span className="w-7 text-[11px] text-gray-600 ml-3">夜</span>
+                <Progress value={sn ?? 0} />
+                <span className="w-10 text-right text-xs">{sn!=null ? Math.round(sn*100) : '-'}%</span>
               </div>
             </div>
           );
         })}
-    </div>
-  );
+      </div>
+    );
+  };
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
@@ -785,13 +769,22 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
         <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
         <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
       </div>
-      <div className="mt-3">
-        <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
-        {viewMode==='calendar' ? <CalendarMerged /> : <ListMerged />}
+
+      {/* 左：カレンダー / 右：充足率一覧 */}
+      <div className="mt-3 grid md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
+          <CalendarMerged />
+        </div>
+        <div>
+          <div className="text-sm text-gray-600 mb-1">充足率一覧（各メンバー・昼/夜）</div>
+          <SatisfactionList />
+        </div>
       </div>
     </div>
   );
 }
+
 
 function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, mode='昼', highlightName='' }) {
   const minSat = Math.min(...Object.values(assn.satisfaction));
