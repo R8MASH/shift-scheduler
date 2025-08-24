@@ -663,16 +663,20 @@ function PeopleChips({ people = [], highlightName = "" }) {
 
 
 
-function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, onlyLack=false, year, month, half, highlightName='' }) {
-  const fmtScore = (assn)=>{
-    if(!assn) return '—';
-    const minSat = Math.min(...Object.values(assn.satisfaction));
-    const avgSat = Object.values(assn.satisfaction).reduce((a,b)=>a+b,0)/Object.values(assn.satisfaction).length;
-    return `S ${assn.score.toFixed(3)} / 最低 ${Math.round(minSat*100)}% / 平均 ${Math.round(avgSat*100)}%`;
-  };
-
+function CombinedCandidateCard({
+  idx,
+  dayAssn,
+  nightAssn,
+  slotsDay,
+  slotsNight,
+  onlyLack = false,
+  year,
+  month,
+  half,
+  highlightName = '',
+}) {
   const weekdayHead = (
-    <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
+    <div className="grid" style={{ gridTemplateColumns: 'repeat(7,minmax(0,1fr))' }}>
       {['日','月','火','水','木','金','土'].map((w) => (
         <div key={w} className="text-center text-xs text-gray-600 py-1">{w}</div>
       ))}
@@ -686,14 +690,20 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     const firstDow = new Date(year, month - 1, 1).getDay();
     const totalCells = Math.ceil((firstDow + dmax) / 7) * 7;
 
-    const slotDayByIso = Object.fromEntries((slotsDay||[]).map(s=>[s.iso,s]));
-    const slotNightByIso = Object.fromEntries((slotsNight||[]).map(s=>[s.iso,s]));
+    const slotDayByIso = Object.fromEntries((slotsDay || []).map(s => [s.iso, s]));
+    const slotNightByIso = Object.fromEntries((slotsNight || []).map(s => [s.iso, s]));
 
     const cells = [];
     let day = 1;
-    for (let i=0;i<totalCells;i++){
+
+    for (let i = 0; i < totalCells; i++) {
       const empty = i < firstDow || day > dmax;
-      if (empty) { cells.push(<div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
+      if (empty) {
+        cells.push(
+          <div key={`e${i}`} className="border rounded p-2 bg-gray-50" style={{ minHeight: '110px' }} />
+        );
+        continue;
+      }
       const d = day++;
       const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const inRange = d >= start && d <= end;
@@ -710,17 +720,26 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
       const lackDay = peopleDay.length < reqDay;
       const lackNight = peopleNight.length < reqNight;
 
-      if (onlyLack && !(lackDay || lackNight)) { cells.push(<div key={iso} className="border rounded p-2 bg-gray-50" style={{minHeight:'110px'}}/>); continue; }
+      if (onlyLack && !(lackDay || lackNight)) {
+        cells.push(
+          <div key={iso} className="border rounded p-2 bg-gray-50" style={{ minHeight: '110px' }} />
+        );
+        continue;
+      }
 
       cells.push(
-        <div key={iso} className={`relative border rounded p-2 ${inRange ? '' : 'opacity-40'} ${(lackDay||lackNight) ? 'ring-2 ring-red-400' : ''}`} style={{minHeight:'110px', background: inRange ? weekendHolidayBg(iso) : undefined}}>
+        <div
+          key={iso}
+          className={`relative border rounded p-2 ${inRange ? '' : 'opacity-40'} ${(lackDay || lackNight) ? 'ring-2 ring-red-400' : ''}`}
+          style={{ minHeight: '110px', background: inRange ? weekendHolidayBg(iso) : undefined }}
+        >
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium">{d}</div>
             <div className="text-xs text-gray-500">({weekdayJ(iso)})</div>
           </div>
 
           <div className="space-y-1 text-xs">
-            <div className={`relative rounded px-2 py-1 ${lackDay?'bg-red-50':'bg-green-50'}`}>
+            <div className={`relative rounded px-2 py-1 ${lackDay ? 'bg-red-50' : 'bg-green-50'}`}>
               <span className="inline-block mr-2 text-xs px-1.5 py-0.5 rounded border bg-yellow-200">昼</span>
               <CountBadge current={peopleDay.length} required={reqDay} />
               <div className={`mt-1 ${highlightName && peopleDay.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
@@ -728,7 +747,7 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
               </div>
             </div>
 
-            <div className={`relative rounded px-2 py-1 ${lackNight?'bg-red-50':'bg-green-50'}`}>
+            <div className={`relative rounded px-2 py-1 ${lackNight ? 'bg-red-50' : 'bg-green-50'}`}>
               <span className="inline-block mr-2 text-xs px-1.5 py-0.5 rounded border bg-indigo-200">夜</span>
               <CountBadge current={peopleNight.length} required={reqNight} />
               <div className={`mt-1 ${highlightName && peopleNight.includes(highlightName) ? 'ring-2 ring-amber-400 rounded' : ''}`}>
@@ -739,42 +758,13 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
         </div>
       );
     }
+
     return (
       <div>
         {weekdayHead}
-        <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:'8px'}}>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: '8px' }}>
           {cells}
         </div>
-      </div>
-    );
-  };
-
-  const SatisfactionList = () => {
-    const names = Array.from(new Set([
-      ...(dayAssn ? Object.keys(dayAssn.satisfaction) : []),
-      ...(nightAssn ? Object.keys(nightAssn.satisfaction) : []),
-    ])).sort((a,b)=> a.localeCompare(b, 'ja'));
-
-    return (
-      <div className="space-y-2">
-        {names.map((n) => {
-          const sd = dayAssn ? dayAssn.satisfaction[n] : undefined;
-          const sn = nightAssn ? nightAssn.satisfaction[n] : undefined;
-          return (
-            <div key={n} className="flex items-center gap-2">
-              <div className="w-24 text-sm">{n}</div>
-              <div className="flex-1 flex items-center gap-2">
-                <span className="w-7 text-[11px] text-gray-600">昼</span>
-                <Progress value={sd ?? 0} />
-                <span className="w-10 text-right text-xs">{sd!=null ? Math.round(sd*100) : '-'}%</span>
-
-                <span className="w-7 text-[11px] text-gray-600 ml-3">夜</span>
-                <Progress value={sn ?? 0} />
-                <span className="w-10 text-right text-xs">{sn!=null ? Math.round(sn*100) : '-'}%</span>
-              </div>
-            </div>
-          );
-        })}
       </div>
     );
   };
@@ -783,23 +773,15 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center justify-between">
         <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
-        <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
       </div>
-
-      {/* 左：カレンダー / 右：充足率一覧 */}
-      <div className="mt-3 grid md:grid-cols-2 gap-4">
-        <div>
-          <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
-          <CalendarMerged />
-        </div>
-        <div>
-          <div className="text-sm text-gray-600 mb-1">充足率一覧（各メンバー・昼/夜）</div>
-          <SatisfactionList />
-        </div>
+      <div className="mt-3">
+        <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
+        <CalendarMerged />
       </div>
     </div>
   );
 }
+
 
 
 function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year, month, half, mode='昼', highlightName='' }) {
