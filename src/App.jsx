@@ -648,6 +648,7 @@ function PeopleChips({ people = [], highlightName = "" }) {
 
 
 function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, onlyLack=false, year, month, half, highlightName='' }) {
+  const [tab, setTab] = useState('calendar'); // 'calendar' | 'satisfaction'
   const fmtScore = (assn)=>{
     if(!assn) return '—';
     const minSat = Math.min(...Object.values(assn.satisfaction));
@@ -770,16 +771,36 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
         <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
       </div>
 
-      {/* 左：カレンダー / 右：充足率一覧 */}
-      <div className="mt-3 grid md:grid-cols-2 gap-4">
-        <div>
-          <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
-          <CalendarMerged />
+      {/* タブ切替：カレンダー / 充足率 */}
+      <div className="mt-3">
+        <div className="inline-flex rounded-lg overflow-hidden border">
+          <button
+            type="button"
+            onClick={() => setTab('calendar')}
+            className={`px-3 py-1 text-sm ${tab==='calendar' ? 'bg-blue-600 text-white' : 'bg-white'}`}
+          >
+            カレンダー
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('satisfaction')}
+            className={`px-3 py-1 text-sm border-l ${tab==='satisfaction' ? 'bg-blue-600 text-white' : 'bg-white'}`}
+          >
+            充足率
+          </button>
         </div>
-        <div>
-          <div className="text-sm text-gray-600 mb-1">充足率一覧（各メンバー・昼/夜）</div>
-          <SatisfactionList />
-        </div>
+
+        {tab === 'calendar' ? (
+         <div className="mt-3">
+            <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
+            <CalendarMerged />
+          </div>
+        ) : (
+          <div className="mt-3">
+            <div className="text-sm text-gray-600 mb-1">充足率一覧（各メンバー・昼/夜）</div>
+            <SatisfactionList />
+          </div>
+        )}
       </div>
     </div>
   );
