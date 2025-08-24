@@ -168,10 +168,12 @@ export default function ShiftSchedulerApp() {
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'calendar');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
+  const [mainTab, setMainTab] = useState(persisted?.mainTab ?? 'calendar'); // 'calendar' | 'satisfaction'
+
 
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName]);
+    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName, mainTab });
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName, mainTab]);
 
   useEffect(() => {
     const key = periodKey(year, month, half);
@@ -269,11 +271,24 @@ export default function ShiftSchedulerApp() {
 
         <Panel title="候補スケジュール（昼夜まとめて表示／不足は赤）">
           <div className="flex items-center gap-2 mb-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
-            </label>
+            <div className="inline-flex overflow-hidden rounded border">
+              <button
+                type="button"
+                className={`px-3 py-1 text-sm ${mainTab==='calendar' ? 'bg-blue-600 text-white' : 'bg-white'}`}
+                onClick={() => setMainTab('calendar')}
+              >
+                カレンダー
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1 text-sm border-l ${mainTab==='satisfaction' ? 'bg-blue-600 text-white' : 'bg-white'}`}
+                onClick={() => setMainTab('satisfaction')}
+              >
+                充足率
+              </button>
+            </div>
 
-            <span className="ml-4 text-sm text-gray-600">　ハイライト</span>
+            <span className="ml-4 text-sm text-gray-600">ハイライト</span>
             <select className="border rounded px-2 py-1 text-sm" value={highlightName} onChange={(e)=> setHighlightName(e.target.value)}>
               <option value="">なし</option>
               {members.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
@@ -302,6 +317,7 @@ export default function ShiftSchedulerApp() {
                   month={month}
                   half={half}
                   highlightName={highlightName}
+                  mainTab={mainTab}
                 />
               ))}
             </div>
@@ -844,17 +860,62 @@ function CandidateCard({ idx, assn, slots, viewMode='list', onlyLack=false, year
 
   return (
     <div className="rounded-2xl border p-4 bg-white shadow">
-      <div className="flex items-center gap-3 justify-between">
-        <div className="font-semibold">候補 {idx + 1}（{mode}）</div>
-        <div className="text-sm text-gray-600">スコア {assn.score.toFixed(3)}</div>
+      <div className="flex items-center justify-between">
+        <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
+        <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
       </div>
-      <div className="mt-3">
-        <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
-        {viewMode==='calendar' ? <CalendarView /> : <ListView />}
-      </div>
+     <div className="mt-3">
+       <div className="text-sm text-gray-600 mb-1">{viewMode==='calendar' ? 'カレンダー（不足=赤 / 充足=緑）' : 'シフト別割当（不足は赤）'}</div>
+       {viewMode==='calendar' ? <CalendarMerged /> : <ListMerged />}
+     </div>
+     <div className="mt-3">
+       {mainTab === 'calendar' ? (
+         <>
+           <div className="text-sm text-gray-600 mb-1">カレンダー（不足=赤 / 充足=緑）</div>
+           <CalendarMerged />
+         </>
+       ) : (
+         <>
+           <div className="text-sm text-gray-600 mb-1">充足率（各メンバー・昼/夜）</div>
+           <SatisfactionListBoth dayAssn={dayAssn} nightAssn={nightAssn} />
+         </>
+       )}
+     </div>
     </div>
   );
 }
+
+function SatisfactionListBoth({ dayAssn, nightAssn }) {
+  const names = React.useMemo(() => {
+    return Array.from(new Set([
+      ...(dayAssn ? Object.keys(dayAssn.satisfaction) : []),
+      ...(nightAssn ? Object.keys(nightAssn.satisfaction) : []),
+    ])).sort((a,b)=> a.localeCompare(b, 'ja'));
+  }, [dayAssn, nightAssn]);
+
+  return (
+    <div className="space-y-2">
+      {names.map(n => {
+        const sd = dayAssn ? dayAssn.satisfaction[n] : undefined;
+        const sn = nightAssn ? nightAssn.satisfaction[n] : undefined;
+        return (
+          <div key={n} className="flex items-center gap-2">
+            <div className="w-24 text-sm">{n}</div>
+            <div className="flex-1 flex items-center gap-3">
+              <span className="w-7 text-[11px] text-gray-600">昼</span>
+              <Progress value={sd ?? 0} />
+              <span className="w-10 text-right text-xs">{sd!=null ? Math.round(sd*100) : '-'}%</span>
+              <span className="w-7 text-[11px] text-gray-600 ml-3">夜</span>
+              <Progress value={sn ?? 0} />
+              <span className="w-10 text-right text-xs">{sn!=null ? Math.round(sn*100) : '-'}%</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function Progress({ value }) {
   return (
