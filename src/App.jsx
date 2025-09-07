@@ -18,7 +18,7 @@ function computeSatisfaction(member, assigned) {
   return coverRatio;
 }
 
-function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
+function greedySchedule(members,slots,seed = 0,balanceBias = 0.6,pairingPrefByIso = null, pairBonus = 0 ) {
   const rng = mulberry32(seed);
   const bySlot = Object.fromEntries(slots.map((s) => [s.id, []]));
   const byMember = Object.fromEntries(members.map((m) => [m.name, []]));
@@ -32,7 +32,14 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
     const deficit = Math.max(0, member.desired_days - byMember[member.name].length);
     const fairness = balanceBias * (deficit / Math.max(1, member.desired_days));
     const loadPenalty = 0.05 * byMember[member.name].length;
-    return prefBonus + fairness - loadPenalty + rng();
+
+    // ★ 同日ペア優遇（昼→夜の連携用）。slotId から iso を取り出して参照
+    const iso = slotId.split('_')[0];
+    const pairBoost =
+      pairingPrefByIso && pairingPrefByIso[iso] && pairingPrefByIso[iso].has(member.name)
+        ? pairBonus
+        : 0;
+    return prefBonus + fairness - loadPenalty + pairBoost + rng();
   };
 
   for (const slot of order) {
@@ -75,6 +82,60 @@ function greedySchedule(members, slots, seed = 0, balanceBias = 0.6) {
   const avgSat = vals.length ? total / members.length : 1;
   const score = 0.4 * minSat + 0.6 * avgSat;
   return { bySlot, byMember, satisfaction, score };
+}
+
+// ★ 昼の割当結果を “同日ペア優遇” として取り入れつつ夜の候補を生成
+function generateCandidatesWithPairing(
+  members,
+  slots,
+  n = 5,
+  minSatisfaction = 0.7,
+  dayAssnForPairing,     // 昼のアサイン結果 { bySlot, ... } を想定
+  pairStrength = 0.5
+) {
+  const accepted = [];
+  const bestSeen = [];
+  let seed = 0, tried = 0;
+
+  // 昼アサインを iso→Set(名前) に変換
+  const pairingPrefByIso = {};
+  if (dayAssnForPairing && dayAssnForPairing.bySlot) {
+    for (const [slotId, names] of Object.entries(dayAssnForPairing.bySlot)) {
+      const iso = slotId.split('_')[0];
+      pairingPrefByIso[iso] = pairingPrefByIso[iso] || new Set();
+      names.forEach((nm) => pairingPrefByIso[iso].add(nm));
+    }
+  }
+  const pairBonus = 0.3 * Math.max(0, Math.min(1, pairStrength));
+
+  const pushUnique = (arr, assn) => {
+    const sig = JSON.stringify(
+      Object.fromEntries(Object.entries(assn.bySlot).map(([k, v]) => [k, [...v].sort()]))
+    );
+    if (!arr.some((r) => r.__sig === sig)) {
+      assn.__sig = sig;
+      arr.push(assn);
+    }
+  };
+
+  while (accepted.length < n && tried < n * 40) {
+    const bias = 0.4 + 0.4 * ((seed % 10) / 9 || 0);
+    const assn = greedySchedule(
+      members,
+      slots,
+      seed,
+      bias,
+      Object.keys(pairingPrefByIso).length ? pairingPrefByIso : null,
+      pairBonus
+    );
+    pushUnique(bestSeen, assn);
+    const minSat = Math.min(...Object.values(assn.satisfaction));
+    if (!Number.isNaN(minSat) && minSat >= minSatisfaction) pushUnique(accepted, assn);
+    seed += 1; tried += 1;
+  }
+  if (accepted.length > 0) return accepted.sort((a, b) => b.score - a.score).slice(0, n);
+  if (bestSeen.length > 0) return bestSeen.sort((a, b) => b.score - a.score).slice(0, n);
+  return [];
 }
 
 function generateCandidates(members, slots, n = 5, minSatisfaction = 0.7) {
@@ -228,8 +289,31 @@ export default function ShiftSchedulerApp() {
     desired_days: m.desired_days_night ?? 0,
   })), [members]);
 
-  const candidatesDay = useMemo(() => generateCandidates(membersDay, slotsDay, numCandidates, minSat), [membersDay, slotsDay, numCandidates, minSat]);
-  const candidatesNight = useMemo(() => generateCandidates(membersNight, slotsNight, numCandidates, minSat), [membersNight, slotsNight, numCandidates, minSat]);
+  const candidatesDay = useMemo(
+    () => generateCandidates(membersDay, slotsDay, numCandidates, minSat),
+    [membersDay, slotsDay, numCandidates, minSat]
+  );
+  const candidatesNight = useMemo(() => {
+    // 昼候補があれば、同じインデックスの昼案を参照して“同日ペア優遇込み”で夜候補を作る
+    if ((candidatesDay?.length || 0) > 0) {
+      const out = [];
+      for (let i = 0; i < numCandidates; i++) {
+        const refDay = candidatesDay[i] || candidatesDay[0]; // 足りなければ先頭を流用
+        const one = generateCandidatesWithPairing(
+          membersNight,
+          slotsNight,
+          1,
+          minSat,
+          refDay,
+          pairStrength
+        );
+        if (one[0]) out.push(one[0]);
+      }
+      return out;
+    }
+    // 昼候補が無い場合は従来通り
+    return generateCandidates(membersNight, slotsNight, numCandidates, minSat);
+  }, [membersNight, slotsNight, numCandidates, minSat, candidatesDay, pairStrength]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
