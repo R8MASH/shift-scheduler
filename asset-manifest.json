@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/shift-scheduler/static/css/main.d1a52542.css",
-    "main.js": "/shift-scheduler/static/js/main.a5e971d0.js",
+    "main.js": "/shift-scheduler/static/js/main.9c8dba62.js",
     "index.html": "/shift-scheduler/index.html",
     "main.d1a52542.css.map": "/shift-scheduler/static/css/main.d1a52542.css.map",
-    "main.a5e971d0.js.map": "/shift-scheduler/static/js/main.a5e971d0.js.map"
+    "main.9c8dba62.js.map": "/shift-scheduler/static/js/main.9c8dba62.js.map"
   },
   "entrypoints": [
     "static/css/main.d1a52542.css",
-    "static/js/main.a5e971d0.js"
+    "static/js/main.9c8dba62.js"
   ]
 }
