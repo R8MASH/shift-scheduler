@@ -229,6 +229,8 @@ export default function ShiftSchedulerApp() {
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'calendar');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
+  // ★ FIX: pairStrength は useEffect で参照するため先に宣言
+  const [pairStrength, setPairStrength] = useState(persisted?.pairStrength ?? 0.5);
   const [publishedDay, setPublishedDay] = useState(persisted?.publishedDay ?? []);
   const [publishedNight, setPublishedNight] = useState(persisted?.publishedNight ?? []);
   const [publishedSig, setPublishedSig] = useState(persisted?.publishedSig ?? null);
@@ -240,12 +242,14 @@ export default function ShiftSchedulerApp() {
     saveState({
       year, month, half, periodConfigs, members,
       minSat, numCandidates, viewMode, onlyLack, highlightName, pairStrength,
-      publishedDay, publishedNight, publishedSig
+      publishedDay, publishedNight, publishedSig,
+      sortBy, sortDir
     });
   }, [
     year, month, half, periodConfigs, members,
     minSat, numCandidates, viewMode, onlyLack, highlightName, pairStrength,
-    publishedDay, publishedNight, publishedSig
+    publishedDay, publishedNight, publishedSig,
+    sortBy, sortDir
   ]);
 
   useEffect(() => {
@@ -267,7 +271,6 @@ export default function ShiftSchedulerApp() {
   const cfgRaw = periodConfigs[periodKey(year, month, half)] || {};
   const cfg = { reqDay: { ...(cfgRaw.reqDay||{}) }, reqNight: { ...(cfgRaw.reqNight||{}) } };
 
-  const [pairStrength, setPairStrength] = useState(persisted?.pairStrength ?? 0.5);
 
   const slotsDay = useMemo(() => {
     const out = []; const dmax = daysInMonth(year, month);
@@ -563,7 +566,7 @@ export default function ShiftSchedulerApp() {
             </div>
           </div>
 
-          {(candidatesDay.length === 0 && candidatesNight.length === 0) ? (
+          {(displayDay.length === 0 && displayNight.length === 0) ? (
             <div className="text-gray-500">候補がありません。必要人数やしきい値、可用日を調整してください。</div>
           ) : (
             <div className="grid gap-4">
