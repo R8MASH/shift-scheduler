@@ -788,6 +788,26 @@ function CalendarHalf({ year, month, half, cfg, onChange }) {
 function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
   const [active, setActive] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  // ★ 連勤上限の入力ドラフト（メンバー名ごとに一時保持）
+  const [maxConsDraft, setMaxConsDraft] = useState({}); // { [memberName]: '文字列' }
+
+  // アクティブ切替やメンバー更新時に、ドラフト未初期化なら現値を入れる
+  useEffect(() => {
+    const m = members[active];
+    if (!m) return;
+    setMaxConsDraft(prev =>
+      Object.prototype.hasOwnProperty.call(prev, m.name)
+        ? prev
+        : { ...prev, [m.name]: String(m.max_consecutive ?? 3) }
+    );
+  }, [active, members]);
+
+  const commitMaxConsecutive = (idx, name, raw, fallback) => {
+    const v = parseInt(String(raw ?? '').replace(/[^\d]/g, ''), 10);
+    const next = Number.isFinite(v) ? Math.max(1, Math.min(31, v)) : (fallback ?? 3);
+    setMembers(prev => prev.map((m, i) => (i === idx ? { ...m, max_consecutive: next } : m)));
+    setMaxConsDraft(prev => ({ ...prev, [name]: String(next) }));
+  };  
 
   const add = () => setMembers((m) => [...m, { name: `Member${m.length + 1}`, availability: new Set(), desired_days_day: 1, desired_days_night: 1, preferred_slots: new Set(), max_consecutive: 3 }]);
   const remove = (idx) => setMembers((arr) => arr.filter((_, i) => i !== idx));
@@ -859,6 +879,25 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
+            <label className="text-sm text-gray-600 ml-4">連勤上限</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="w-20 border rounded px-2 py-1 text-right"
+              value={maxConsDraft[members[active].name] ?? String(members[active].max_consecutive ?? 3)}
+              onChange={(e) =>
+                setMaxConsDraft(prev => ({ ...prev, [members[active].name]: e.target.value }))
+              }
+              onBlur={(e) =>
+                commitMaxConsecutive(active, members[active].name, e.target.value, members[active].max_consecutive)
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur(); // Enterで確定
+                }
+              }}
+            />            
             <button type="button" className="ml-4 px-2 py-1 text-xs rounded border bg-yellow-200" onClick={() => bulkToggleAll(active, 'DAY')}>昼 全選択/解除</button>
             <button type="button" className="px-2 py-1 text-xs rounded border bg-indigo-200" onClick={() => bulkToggleAll(active, 'NIGHT')}>夜 全選択/解除</button>
             <button type="button" className="text-red-600 ml-2" onClick={() => remove(active)}>削除</button>
