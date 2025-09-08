@@ -878,8 +878,6 @@ function TabbedMemberEditor({ year, month, half, cfg, members, setMembers }) {
             <label className="text-sm text-gray-600 ml-4">希望日数（夜）</label>
             <input type="number" min={0} className="w-20 border rounded px-2 py-1" value={members[active].desired_days_night ?? 0} onChange={(e) => updateMember(active, { desired_days_night: parseInt(e.target.value || '0') })} />
             <label className="text-sm text-gray-600 ml-4">連勤上限</label>
-            <input type="number" min={1} className="w-20 border rounded px-2 py-1" value={members[active].max_consecutive ?? 3} onChange={(e) => updateMember(active, { max_consecutive: Math.max(1, parseInt(e.target.value || '3')) })} />
-            <label className="text-sm text-gray-600 ml-4">連勤上限</label>
             <input
               type="text"
               inputMode="numeric"
