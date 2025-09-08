@@ -229,10 +229,24 @@ export default function ShiftSchedulerApp() {
   const [viewMode, setViewMode] = useState(persisted?.viewMode ?? 'calendar');
   const [onlyLack, setOnlyLack] = useState(persisted?.onlyLack ?? false);
   const [highlightName, setHighlightName] = useState(persisted?.highlightName ?? '');
+  const [publishedDay, setPublishedDay] = useState(persisted?.publishedDay ?? []);
+  const [publishedNight, setPublishedNight] = useState(persisted?.publishedNight ?? []);
+  const [publishedSig, setPublishedSig] = useState(persisted?.publishedSig ?? null);
+  const [sortBy, setSortBy] = useState(persisted?.sortBy ?? 'totalLack'); // 'idx'|'dayMin'|'dayAvg'|'dayLack'|'nightMin'|'nightAvg'|'nightLack'|'totalLack'
+  const [sortDir, setSortDir] = useState(persisted?.sortDir ?? 'asc');     // 'asc'|'desc'
 
   useEffect(() => {
-    saveState({ year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName });
-  }, [year, month, half, periodConfigs, members, minSat, numCandidates, viewMode, onlyLack, highlightName]);
+    // 出力済み情報も含めて永続化
+    saveState({
+      year, month, half, periodConfigs, members,
+      minSat, numCandidates, viewMode, onlyLack, highlightName, pairStrength,
+      publishedDay, publishedNight, publishedSig
+    });
+  }, [
+    year, month, half, periodConfigs, members,
+    minSat, numCandidates, viewMode, onlyLack, highlightName, pairStrength,
+    publishedDay, publishedNight, publishedSig
+  ]);
 
   useEffect(() => {
     const key = periodKey(year, month, half);
@@ -315,6 +329,107 @@ export default function ShiftSchedulerApp() {
     return generateCandidates(membersNight, slotsNight, numCandidates, minSat);
   }, [membersNight, slotsNight, numCandidates, minSat, candidatesDay, pairStrength]);
 
+  // ===== 出力の固定制御 =====
+  // 署名用の正規化：入力が変わったかどうかを判定（Setsは配列化し、ソートしてから署名化）
+  function normMembers(ms){
+    return (ms||[])
+      .map(m => ({
+        name: m.name,
+        desired_days_day: m.desired_days_day,
+        desired_days_night: m.desired_days_night,
+        max_consecutive: m.max_consecutive,
+        availability: Array.from(m.availability||[]).sort(),
+        preferred_slots: Array.from(m.preferred_slots||[]).sort(),
+      }))
+      .sort((a,b)=>a.name.localeCompare(b.name));
+  }
+  function normPeriod(pc){
+    const ord = o => Object.fromEntries(Object.entries(o||{}).sort(([a],[b]) => a.localeCompare(b)));
+    return {
+      reqDay: ord(pc?.reqDay||{}),
+      reqNight: ord(pc?.reqNight||{}),
+    };
+  }
+  const configSig = useMemo(() => {
+    const target = {
+      year, month, half,
+      period: normPeriod(periodConfigs?.[`${year}-${month}-${half}`]),
+      members: normMembers(members),
+      minSat, numCandidates, pairStrength
+    };
+    return JSON.stringify(target);
+  }, [year, month, half, periodConfigs, members, minSat, numCandidates, pairStrength]);
+  const isDirtySincePublish = useMemo(() => publishedSig !== configSig, [publishedSig, configSig]);
+
+  // 出力（固定）実行：現在のプレビュー候補をそのまま固定して表示・保存
+  const handlePublish = () => {
+    setPublishedDay(candidatesDay || []);
+    setPublishedNight(candidatesNight || []);
+    setPublishedSig(configSig);
+  };
+  // 出力クリア（必要ならUIにボタン追加可）
+  const handleClearPublish = () => {
+    setPublishedDay([]);
+    setPublishedNight([]);
+    setPublishedSig(null);
+  };
+
+  // 画面に表示するのは「出力済み」のみ（未出力なら空扱い）
+  const displayDay = publishedDay || [];
+  const displayNight = publishedNight || [];
+
+  
+  // ===== サマリー計算（各候補ごとの満足度・不足合計） =====
+  const summarizeAssn = (assn, slots) => {
+    if (!assn) return { minSat: null, avgSat: null, lackTotal: null };
+    const vals = Object.values(assn.satisfaction || {});
+    const minSat = vals.length ? Math.min(...vals) : 1;
+    const avgSat = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 1;
+    let lackTotal = 0;
+    for (const s of slots) {
+      const cur = assn.bySlot?.[s.id]?.length || 0;
+      lackTotal += Math.max(0, (s.required || 0) - cur);
+    }
+    return { minSat, avgSat, lackTotal };
+  };
+  const summaryRows = useMemo(() => {
+    const n = Math.max(displayDay.length, displayNight.length);
+    const rows = [];
+    for (let i=0;i<n;i++){
+      const d = summarizeAssn(displayDay[i], slotsDay);
+      const nsum = summarizeAssn(displayNight[i], slotsNight);
+      rows.push({ i, day: d, night: nsum });
+    }
+    return rows;
+    }, [displayDay, displayNight, slotsDay, slotsNight]);
+
+  // ★ サマリーの並び替え（行インデックス配列を作って並べ替え）
+  const rowByIndex = useMemo(() => Object.fromEntries(summaryRows.map(r => [r.i, r])), [summaryRows]);
+  const sortedIdxs = useMemo(() => {
+    const keyVal = (r) => {
+      switch (sortBy) {
+        case 'dayMin':    return r.day.minSat   ?? 1;
+        case 'dayAvg':    return r.day.avgSat   ?? 1;
+        case 'dayLack':   return r.day.lackTotal   ?? 0;
+        case 'nightMin':  return r.night.minSat ?? 1;
+        case 'nightAvg':  return r.night.avgSat ?? 1;
+        case 'nightLack': return r.night.lackTotal ?? 0;
+        case 'totalLack': return (r.day.lackTotal ?? 0) + (r.night.lackTotal ?? 0);
+        case 'idx':
+        default:          return r.i;
+      }
+    };
+    const arr = summaryRows.map(r => r.i);
+    arr.sort((a, b) => {
+      const ra = rowByIndex[a], rb = rowByIndex[b];
+      const va = keyVal(ra),     vb = keyVal(rb);
+      const cmp = (va === vb) ? (a - b) : (va < vb ? -1 : 1);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [summaryRows, rowByIndex, sortBy, sortDir]);
+ 
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto grid gap-6">
@@ -352,6 +467,85 @@ export default function ShiftSchedulerApp() {
         </Panel>
 
         <Panel title="候補スケジュール（昼夜まとめて表示／不足は赤）">
+          {/* ★ 出力（固定）ボタン群 */}
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 rounded border bg-white hover:bg-gray-50"
+              onClick={handlePublish}
+            >
+              {publishedSig ? (isDirtySincePublish ? '再出力（現在の設定で上書き）' : '再出力（同じ設定）') : 'シフトを出力'}
+            </button>
+            {publishedSig && (
+              <button
+                type="button"
+                className="px-3 py-1 rounded border text-gray-600 hover:bg-gray-50"
+                onClick={handleClearPublish}
+              >
+                出力をクリア
+              </button>
+            )}
+            <span className={`text-xs ${isDirtySincePublish ? 'text-red-600' : 'text-gray-500'}`}>
+              {publishedSig
+                ? (isDirtySincePublish
+                    ? '未出力の変更があります（表示は固定のまま）'
+                    : '出力と設定は一致しています')
+                : 'まだ出力されていません'}
+            </span>
+          </div>
+          {/* 候補比較サマリー（上部に一覧） */}
+          {/* ★ 並び替えUI */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm text-gray-600">サマリー並び替え:</span>
+            <select className="border rounded px-2 py-1 text-sm" value={sortBy} onChange={(e)=> setSortBy(e.target.value)}>
+              <option value="totalLack">不足合計</option>
+              <option value="dayLack">昼 不足合計</option>
+              <option value="nightLack">夜 不足合計</option>
+              <option value="dayMin">昼 最低充足率</option>
+              <option value="nightMin">夜 最低充足率</option>
+              <option value="dayAvg">昼 平均充足率</option>
+              <option value="nightAvg">夜 平均充足率</option>
+              <option value="idx">元の順序</option>
+            </select>
+            <button type="button" className="px-2 py-1 text-xs rounded border" onClick={()=> setSortDir(d => d === 'asc' ? 'desc' : 'asc')}>
+              {sortDir === 'asc' ? '↑ 昇順' : '↓ 降順'}
+            </button>
+          </div>
+          <div className="mb-3 overflow-x-auto">
+            <table className="w-full text-sm border">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="border px-2 py-1 text-left">候補</th>
+                  <th className="border px-2 py-1">昼 最低/平均</th>
+                  <th className="border px-2 py-1">昼 不足合計</th>
+                  <th className="border px-2 py-1">夜 最低/平均</th>
+                  <th className="border px-2 py-1">夜 不足合計</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summaryRows.length === 0 ? (
+                  <tr><td colSpan={5} className="border px-2 py-2 text-gray-500">
+                    {publishedSig ? '出力済み候補がありません' : 'まだ出力されていません（「シフトを出力」を押すと固定表示されます）'}
+                  </td></tr>
+                ) : sortedIdxs.map(i => {
+                  const r = rowByIndex[i];
+                  return (
+                  <tr key={`sum-${r.i}`} className="odd:bg-white even:bg-gray-50">
+                    <td className="border px-2 py-1">案 {r.i+1}</td>
+                    <td className="border px-2 py-1">
+                      {r.day.minSat==null ? '-' : `${Math.round(r.day.minSat*100)}% / ${Math.round(r.day.avgSat*100)}%`}
+                    </td>
+                    <td className="border px-2 py-1">{r.day.lackTotal==null ? '-' : r.day.lackTotal}</td>
+                    <td className="border px-2 py-1">
+                      {r.night.minSat==null ? '-' : `${Math.round(r.night.minSat*100)}% / ${Math.round(r.night.avgSat*100)}%`}
+                    </td>
+                    <td className="border px-2 py-1">{r.night.lackTotal==null ? '-' : r.night.lackTotal}</td>
+                  </tr>
+                )})}
+              </tbody>
+            </table>
+          </div>
+
           <div className="flex items-center gap-2 mb-3">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyLack} onChange={(e)=>setOnlyLack(e.target.checked)} /> 不足のみ
@@ -373,12 +567,12 @@ export default function ShiftSchedulerApp() {
             <div className="text-gray-500">候補がありません。必要人数やしきい値、可用日を調整してください。</div>
           ) : (
             <div className="grid gap-4">
-              {Array.from({length: Math.max(candidatesDay.length, candidatesNight.length)}, (_,i)=>i).map(i => (
+              {Array.from({length: Math.max(displayDay.length, displayNight.length)}, (_,i)=>i).map(i => (
                 <CombinedCandidateCard
                   key={`c${i}`}
                   idx={i}
-                  dayAssn={candidatesDay[i]}
-                  nightAssn={candidatesNight[i]}
+                  dayAssn={displayDay[i]}
+                  nightAssn={displayNight[i]}
                   slotsDay={slotsDay}
                   slotsNight={slotsNight}
                   onlyLack={onlyLack}
@@ -739,6 +933,20 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     const avgSat = Object.values(assn.satisfaction).reduce((a,b)=>a+b,0)/Object.values(assn.satisfaction).length;
     return `S ${assn.score.toFixed(3)} / 最低 ${Math.round(minSat*100)}% / 平均 ${Math.round(avgSat*100)}%`;
   };
+  
+  // ★ 候補カード用：不足合計（昼／夜／合計）を計算してバッジ表示
+  const lackSum = (assn, slots) => {
+    if (!assn) return 0;
+    let t = 0;
+    for (const s of slots) {
+      const cur = assn.bySlot?.[s.id]?.length || 0;
+      t += Math.max(0, (s.required || 0) - cur);
+    }
+    return t;
+  };
+  const lackDayTotal = useMemo(()=> lackSum(dayAssn, slotsDay), [dayAssn, slotsDay]);
+  const lackNightTotal = useMemo(()=> lackSum(nightAssn, slotsNight), [nightAssn, slotsNight]);
+  const lackTotal = lackDayTotal + lackNightTotal;
 
   const weekdayHead = (
     <div className="grid" style={{gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>
@@ -852,7 +1060,15 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
     <div className="rounded-2xl border p-4 bg-white shadow">
       <div className="flex items-center justify-between">
         <div className="font-semibold">候補 {idx + 1}（昼・夜）</div>
-        <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full ${lackTotal>0 ? 'bg-red-600 text-white' : 'bg-green-600 text-white'}`}
+            title={`昼 ${lackDayTotal} / 夜 ${lackNightTotal}`}
+          >
+            不足合計 {lackTotal}
+          </span>
+          <div className="text-xs text-gray-600">昼: {fmtScore(dayAssn)}　|　夜: {fmtScore(nightAssn)}</div>
+        </div>
       </div>
 
       {/* タブ切替：カレンダー / 充足率 */}
