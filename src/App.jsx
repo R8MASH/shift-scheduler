@@ -18,7 +18,15 @@ function computeSatisfaction(member, assigned) {
   return coverRatio;
 }
 
-function greedySchedule(members,slots,seed = 0,balanceBias = 0.6,pairingPrefByIso = null, pairBonus = 0 ) {
+function greedySchedule(
+  members,
+  slots,
+  seed = 0,
+  balanceBias = 0.6,
+  pairingPrefByIso = null,
+  pairBonus = 0,
+  preAssignedIsoByMember = null // ★ 昼夜またぎ連勤用：{ name: Set(iso) }
+) {
   const rng = mulberry32(seed);
   const bySlot = Object.fromEntries(slots.map((s) => [s.id, []]));
   const byMember = Object.fromEntries(members.map((m) => [m.name, []]));
@@ -52,7 +60,8 @@ function greedySchedule(members,slots,seed = 0,balanceBias = 0.6,pairingPrefByIs
       if (needed <= 0) break;
       if (byMember[m.name].length >= Math.max(1, m.desired_days + 1)) continue;
       const maxConsec = Number.isFinite(m.max_consecutive) ? m.max_consecutive : 3;
-      if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec)) continue;
+      const external = preAssignedIsoByMember && preAssignedIsoByMember[m.name];
+      if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec, external)) continue;
       bySlot[slot.id].push(m.name);
       byMember[m.name].push(slot.id);
       needed -= 1;
@@ -62,7 +71,8 @@ function greedySchedule(members,slots,seed = 0,balanceBias = 0.6,pairingPrefByIs
         if (needed <= 0) break;
         if (bySlot[slot.id].includes(m.name)) continue;
         const maxConsec = Number.isFinite(m.max_consecutive) ? m.max_consecutive : 3;
-        if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec)) continue;
+        const external = preAssignedIsoByMember && preAssignedIsoByMember[m.name];
+        if (wouldExceedConsecutive(byMember[m.name], slot.iso, maxConsec, external)) continue;
         bySlot[slot.id].push(m.name);
         byMember[m.name].push(slot.id);
         needed -= 1;
@@ -108,6 +118,16 @@ function generateCandidatesWithPairing(
   }
   const pairBonus = 0.3 * Math.max(0, Math.min(1, pairStrength));
 
+  // ★ 昼の「各メンバーの割当日（ISO）」を作成し、夜の連勤判定に利用
+  const preAssignedIsoByMember = {};
+  if (dayAssnForPairing && dayAssnForPairing.byMember) {
+    for (const [name, slotIds] of Object.entries(dayAssnForPairing.byMember)) {
+      const set = new Set();
+      (slotIds || []).forEach(id => set.add(String(id).split('_')[0]));
+      preAssignedIsoByMember[name] = set;
+    }
+  }
+
   const pushUnique = (arr, assn) => {
     const sig = JSON.stringify(
       Object.fromEntries(Object.entries(assn.bySlot).map(([k, v]) => [k, [...v].sort()]))
@@ -126,7 +146,9 @@ function generateCandidatesWithPairing(
       seed,
       bias,
       Object.keys(pairingPrefByIso).length ? pairingPrefByIso : null,
-      pairBonus
+      pairBonus,
+      // ★ 夜側の連勤制限で「昼に入っている連続日」もカウント
+      Object.keys(preAssignedIsoByMember).length ? preAssignedIsoByMember : null
     );
     pushUnique(bestSeen, assn);
     const minSat = Math.min(...Object.values(assn.satisfaction));
@@ -180,8 +202,22 @@ function periodKey(year, month, half) { return `${year}-${String(month).padStart
 function weekdayJ(iso) { const [y,m,d] = iso.split('-').map(Number); return ['日','月','火','水','木','金','土'][new Date(y, m-1, d).getDay()]; }
 
 function isoAddDays(iso, delta){ const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d + delta); const yy = dt.getFullYear(); const mm = String(dt.getMonth()+1).padStart(2,'0'); const dd = String(dt.getDate()).padStart(2,'0'); return `${yy}-${mm}-${dd}`; }
-function wouldExceedConsecutive(existingSlotIds, candidateIso, max){ const isoSet = new Set((existingSlotIds||[]).map(sid => sid.split('_')[0])); if (isoSet.has(candidateIso)) return false; let left=0, right=0; let cur = isoAddDays(candidateIso, -1); while(isoSet.has(cur)){ left++; cur = isoAddDays(cur, -1); } cur = isoAddDays(candidateIso, +1); while(isoSet.has(cur)){ right++; cur = isoAddDays(cur, +1); } const total = left + 1 + right; return total > max; }
-
+function wouldExceedConsecutive(existingSlotIds, candidateIso, max, externalIsoSet = null){
+  // 既割当（同側）のスロットIDを ISO 日付に正規化
+  const isoSet = new Set((existingSlotIds||[]).map(sid => String(sid).split('_')[0]));
+  // ★ 外部（反対側のシフトなど）の割当 ISO を合算
+  if (externalIsoSet) { for (const iso of externalIsoSet) isoSet.add(iso); }
+  // 同日すでに入っているなら（昼↔夜の同日）連勤チェックは不該当
+  if (isoSet.has(candidateIso)) return false;
+  // 前後の連続日数をカウント
+  let left=0, right=0;
+  let cur = isoAddDays(candidateIso, -1);
+  while(isoSet.has(cur)){ left++; cur = isoAddDays(cur, -1); }
+  cur = isoAddDays(candidateIso, +1);
+  while(isoSet.has(cur)){ right++; cur = isoAddDays(cur, +1); }
+  const total = left + 1 + right;
+  return total > max;
+}
 function isHolidayISO(iso) { const [y,m,d] = iso.split('-').map(Number); return !!JapaneseHolidays.isHoliday(new Date(y, m-1, d)); }
 function weekendHolidayBg(iso) { const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d); const dow = dt.getDay(); if (JapaneseHolidays.isHoliday(dt) || dow === 0) return '#FFE4E6'; if (dow === 6) return '#DBEAFE'; return '#F9FAFB'; }
 
