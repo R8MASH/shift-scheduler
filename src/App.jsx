@@ -26,6 +26,9 @@ function greedySchedule(
   shuffle(order, rng);
 
   const candidateScore = (member, slotId) => {
+    // ★ 希望日数0のメンバーは原則アサインしない
+    if ((Number(member.desired_days) || 0) <= 0) return -1e9;
+    // 可用でないスロットには割り当てない
     if (!member.availability.has(slotId)) return -1e9;
     const prefBonus = member.preferred_slots.has(slotId) ? 0.25 : 0;
     const deficit = Math.max(0, member.desired_days - byMember[member.name].length);
@@ -82,7 +85,9 @@ function greedySchedule(
   const minSat = vals.length ? Math.min(...vals) : 1;
   const avgSat = vals.length ? total / members.length : 1;
   const score = 0.4 * minSat + 0.6 * avgSat;
-  return { bySlot, byMember, satisfaction, score };
+  // ★ 追加：表示用に各メンバーの希望日数を持たせる（昼/夜でそれぞれの desired_days を採用）
+  const desiredDaysMap = Object.fromEntries(members.map(m => [m.name, Number(m.desired_days) || 0]));
+  return { bySlot, byMember, satisfaction, score, desiredDays: desiredDaysMap };
 }
 
 // ★ 昼の割当結果を “同日ペア優遇” として取り入れつつ夜の候補を生成
@@ -1104,6 +1109,11 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
         {names.map((n) => {
           const sd = dayAssn ? dayAssn.satisfaction[n] : undefined;
           const sn = nightAssn ? nightAssn.satisfaction[n] : undefined;
+          // ★ 追加：出勤日数（byMember の長さ）と希望日数（desiredDays）を参照
+          const ad = dayAssn ? ((dayAssn.byMember?.[n]?.length) ?? 0) : 0;
+          const dd = dayAssn ? ((dayAssn.desiredDays?.[n]) ?? 0) : 0;
+          const an = nightAssn ? ((nightAssn.byMember?.[n]?.length) ?? 0) : 0;
+          const dn = nightAssn ? ((nightAssn.desiredDays?.[n]) ?? 0) : 0;
           return (
             <div key={n} className="flex items-center gap-2">
               <div className="w-24 text-sm">{n}</div>
@@ -1111,10 +1121,12 @@ function CombinedCandidateCard({ idx, dayAssn, nightAssn, slotsDay, slotsNight, 
                 <span className="w-7 text-[11px] text-gray-600">昼</span>
                 <Progress value={sd ?? 0} />
                 <span className="w-10 text-right text-xs">{sd!=null ? Math.round(sd*100) : '-'}%</span>
+                {dayAssn && <span className="text-[11px] text-gray-500">（{ad}/{dd}日）</span>}
 
                 <span className="w-7 text-[11px] text-gray-600 ml-3">夜</span>
                 <Progress value={sn ?? 0} />
                 <span className="w-10 text-right text-xs">{sn!=null ? Math.round(sn*100) : '-'}%</span>
+                {nightAssn && <span className="text-[11px] text-gray-500">（{an}/{dn}日）</span>}
               </div>
             </div>
           );
