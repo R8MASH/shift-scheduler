@@ -1,21 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import JapaneseHolidays from "japanese-holidays";
 
+// 充足率＝割当日数 / 希望日数（上限1、希望0以下は1.0）
 function computeSatisfaction(member, assigned) {
-  if (member.desired_days <= 0) {
-    return member.preferred_slots.size === 0
-      ? 1
-      : setIntersect(new Set(assigned), member.preferred_slots).size /
-          Math.max(1, member.preferred_slots.size);
-  }
-  const coverRatio = Math.min(1, assigned.length / member.desired_days);
-  if (member.preferred_slots && member.preferred_slots.size > 0) {
-    const preferredAssigned = setIntersect(new Set(assigned), member.preferred_slots).size;
-    const denom = Math.max(1, Math.min(member.desired_days, member.preferred_slots.size));
-    const prefRatio = preferredAssigned / denom;
-    return 0.5 * coverRatio + 0.5 * prefRatio;
-  }
-  return coverRatio;
+  const desired = Number(member.desired_days) || 0;
+  const assignedCount = (assigned || []).length;
+  if (desired <= 0) return 1;
+  return Math.min(1, assignedCount / desired);
 }
 
 function greedySchedule(
